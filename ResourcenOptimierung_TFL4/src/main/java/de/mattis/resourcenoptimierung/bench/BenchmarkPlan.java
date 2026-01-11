@@ -29,12 +29,14 @@ public class BenchmarkPlan {
                         "coh-on",
                         jvmImage,
                         List.of("-XX:+UnlockExperimentalVMOptions", "-XX:+UseCompactObjectHeaders")
-                ),
+                )
+                /*
                 new BenchmarkConfig(
                         "native",
                         nativeImage,
                         List.of() // wird später ignoriert
                 )
+                 */
         ));
     }
 }
