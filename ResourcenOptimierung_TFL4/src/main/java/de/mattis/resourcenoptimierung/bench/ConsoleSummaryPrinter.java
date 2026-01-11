@@ -64,16 +64,51 @@ public final class ConsoleSummaryPrinter {
                                 p95(r),
                                 r.dockerImage())
                 );
+
+        System.out.println();
+        System.out.println("Per run (latencies: median/p95/mean, plus docker end mem):");
+
+        for (RunResult r : results) {
+            List<Double> l = new ArrayList<>(r.jsonLatenciesSeconds());
+            l.sort(Double::compareTo);
+
+            double median = percentile(l, 0.50);
+            double p95 = percentile(l, 0.95);
+            double mean = l.stream().mapToDouble(Double::doubleValue).average().orElse(Double.NaN);
+
+            String kind = (r.dockerImage() != null && r.dockerImage().contains("native")) ? "NATIVE" : "JVM";
+
+            System.out.printf(
+                    " - %-20s (%s) readiness=%dms first=%.3fs  median=%.3fs p95=%.3fs mean=%.3fs  n=%d  check=%s%n",
+                    r.configName(),
+                    kind,
+                    r.readinessMs(),
+                    r.firstJsonSeconds(),
+                    median,
+                    p95,
+                    mean,
+                    r.jsonLatenciesSeconds().size(),
+                    r.readinessCheckUsed()
+            );
+
+            DockerStatSample end = r.dockerEndSample();
+            if (end != null) {
+                System.out.printf("   docker end mem: %s / %s (%.2f%%)%n",
+                        end.memUsageRaw(), end.memLimitRaw(), end.memPercent());
+            }
+        }
     }
 
     private static double p95(RunResult r) {
-        if (r.jsonLatenciesSeconds().isEmpty()) return Double.NaN;
-        List<Double> l = new ArrayList<>(r.jsonLatenciesSeconds());
-        l.sort(Double::compareTo);
-        return percentile(l, 0.95);
+        List<Double> l = r.jsonLatenciesSeconds();
+        if (l == null || l.isEmpty()) return Double.NaN;
+        List<Double> sorted = new ArrayList<>(l);
+        sorted.sort(Double::compareTo);
+        return percentile(sorted, 0.95);
     }
 
     private static double percentile(List<Double> sorted, double p) {
+        if (sorted == null || sorted.isEmpty()) return Double.NaN;
         int idx = (int) Math.ceil(p * sorted.size()) - 1;
         idx = Math.max(0, Math.min(idx, sorted.size() - 1));
         return sorted.get(idx);

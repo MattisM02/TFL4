@@ -10,5 +10,6 @@ public record RunResult(
         List<Double> jsonLatenciesSeconds,
         List<DockerStatSample> dockerSamples,
         DockerStatSample dockerEndSample,
-        String effectiveJavaToolOptions, String startupLogSnippet) {}
+        String effectiveJavaToolOptions,
+        ReadinessCheckUsed readinessCheckUsed) { }
 

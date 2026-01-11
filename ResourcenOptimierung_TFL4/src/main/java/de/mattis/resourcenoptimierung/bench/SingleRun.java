@@ -37,29 +37,44 @@ public class SingleRun {
 
     public RunResult execute() throws Exception {
         try {
+            // JVM Flags explizit festhalten
+            String effectiveJavaToolOptions = computeEffectiveJavaToolOptions(cfg);
+
             containerId = dockerRun(cfg, port);
 
-            long readinessMs = measureReadinessMs();
+            // Readiness robust (readiness -> health -> /json)
+            ReadinessProber prober = new ReadinessProber();
+            ReadinessProber.ReadinessResult rr =
+                    prober.waitUntilReady("http://localhost:" + port, Duration.ofSeconds(60));
+
+            long readinessMs = rr.readinessMs();
+            ReadinessCheckUsed readinessCheckUsed = rr.used();
+
+            // Danach erst messen
             double firstJsonSeconds = measureEndpointSeconds("/json");
-            // Optional: warmup
+
+            // Warmup
             warmup("/json", 5);
 
-            List<Double> jsonLatencies = measureManySeconds("/json", 20);
+            List<Double> jsonLatenciesSeconds = measureManySeconds("/json", 20);
 
-            List<DockerStatSample> stats = dockerStatsSamples(containerId, 5, 1);
+            // Docker stats während/kurz nach dem Run
+            List<DockerStatSample> dockerSamples = dockerStatsSamples(containerId, 5, 1);
 
-            // Optional: nochmal stats am Ende (z.B. nach /json Runs)
-            DockerStatSample end = dockerStatsNoStream(containerId);
+            // Optional: nochmal stats am Ende
+            DockerStatSample dockerEndSample = dockerStatsNoStream(containerId);
 
             return new RunResult(
                     cfg.name(),
                     cfg.dockerImage(),
                     readinessMs,
                     firstJsonSeconds,
-                    jsonLatencies,
-                    stats,
-                    end,
-                    null, "");
+                    jsonLatenciesSeconds,
+                    dockerSamples,
+                    dockerEndSample,
+                    effectiveJavaToolOptions,
+                    readinessCheckUsed
+            );
         } finally {
             // best-effort cleanup
             if (containerId != null && !containerId.isBlank()) {
@@ -68,6 +83,7 @@ public class SingleRun {
             }
         }
     }
+
 
     private String dockerRun(BenchmarkConfig cfg, int port) throws IOException, InterruptedException {
         // docker run -d -p <port>:8080 <image>
@@ -94,47 +110,23 @@ public class SingleRun {
         return res.stdout.trim(); // container id
     }
 
-
-    private long measureReadinessMs() throws Exception {
-        URI uri = URI.create("http://localhost:" + port + "/actuator/health/readiness");
-
-        Instant start = Instant.now();
-        Instant deadline = start.plus(readinessTimeout);
-
-        while (Instant.now().isBefore(deadline)) {
-            try {
-                HttpRequest req = HttpRequest.newBuilder(uri)
-                        .timeout(Duration.ofSeconds(2))
-                        .GET()
-                        .build();
-
-                HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
-                // readiness = UP (typisch JSON: {"status":"UP",...})
-                if (resp.statusCode() == 200 && resp.body() != null && resp.body().contains("\"UP\"")) {
-                    return Duration.between(start, Instant.now()).toMillis();
-                }
-            } catch (Exception ignored) {
-                // app ist evtl noch nicht ready / port noch nicht offen
-            }
-            Thread.sleep(200);
-        }
-        throw new RuntimeException("Readiness timeout after " + readinessTimeout.toSeconds() + "s");
-    }
-
     private double measureEndpointSeconds(String path) throws Exception {
         URI uri = URI.create("http://localhost:" + port + path);
 
-        Instant start = Instant.now();
         HttpRequest req = HttpRequest.newBuilder(uri)
                 .timeout(Duration.ofSeconds(5))
                 .GET()
                 .build();
+
+        long t0 = System.nanoTime();
         HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
+        long t1 = System.nanoTime();
+
         if (resp.statusCode() != 200) {
             throw new RuntimeException("GET " + path + " failed: " + resp.statusCode() + " body=" + resp.body());
         }
-        long nanos = Duration.between(start, Instant.now()).toNanos();
-        return nanos / 1_000_000_000.0;
+
+        return (t1 - t0) / 1_000_000_000.0;
     }
 
     private void warmup(String path, int times) throws Exception {
