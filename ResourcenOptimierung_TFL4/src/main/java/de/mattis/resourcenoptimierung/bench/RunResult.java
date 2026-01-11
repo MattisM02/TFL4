@@ -11,3 +11,4 @@ public record RunResult(
         List<DockerStatSample> dockerSamples,
         DockerStatSample dockerEndSample
 ) {}
+
