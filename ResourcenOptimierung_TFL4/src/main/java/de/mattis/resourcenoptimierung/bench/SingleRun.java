@@ -8,7 +8,6 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -36,35 +35,37 @@ public class SingleRun {
     }
 
     public RunResult execute() throws Exception {
+        boolean success = false;
         try {
-            // JVM Flags explizit festhalten
+            // JVM Flags explizit festhalten (inkl. Proof-Arg, falls du das oben ergänzt hast)
             String effectiveJavaToolOptions = computeEffectiveJavaToolOptions(cfg);
 
-            containerId = dockerRun(cfg, port);
+            // dockerRun nutzt exakt das, was du im Result speicherst
+            containerId = dockerRun(cfg, port, effectiveJavaToolOptions);
+
+            // Proof: kurze Start-Logs speichern
+            String startupLogSnippet = null;
+            if (!cfg.isNative()) {
+                String logs = dockerLogsTail(containerId, 200);
+                startupLogSnippet = trimSnippet(logs, 2000);
+            }
 
             // Readiness robust (readiness -> health -> /json)
             ReadinessProber prober = new ReadinessProber();
             ReadinessProber.ReadinessResult rr =
-                    prober.waitUntilReady("http://localhost:" + port, Duration.ofSeconds(60));
+                    prober.waitUntilReady("http://localhost:" + port, readinessTimeout);
 
             long readinessMs = rr.readinessMs();
             ReadinessCheckUsed readinessCheckUsed = rr.used();
 
-            // Danach erst messen
             double firstJsonSeconds = measureEndpointSeconds("/json");
-
-            // Warmup
             warmup("/json", 5);
-
             List<Double> jsonLatenciesSeconds = measureManySeconds("/json", 20);
 
-            // Docker stats während/kurz nach dem Run
             List<DockerStatSample> dockerSamples = dockerStatsSamples(containerId, 5, 1);
-
-            // Optional: nochmal stats am Ende
             DockerStatSample dockerEndSample = dockerStatsNoStream(containerId);
 
-            return new RunResult(
+            RunResult result = new RunResult(
                     cfg.name(),
                     cfg.dockerImage(),
                     readinessMs,
@@ -73,19 +74,32 @@ public class SingleRun {
                     dockerSamples,
                     dockerEndSample,
                     effectiveJavaToolOptions,
-                    readinessCheckUsed
+                    readinessCheckUsed,
+                    startupLogSnippet
             );
-        } finally {
-            // best-effort cleanup
+
+            success = true;
+            return result;
+
+        } catch (RuntimeException e) {
             if (containerId != null && !containerId.isBlank()) {
+                String logs = dockerLogsTail(containerId, 200);
+                System.err.println("=== docker logs (tail 200) ===");
+                System.err.println(logs);
+            }
+            throw e;
+        } finally {
+            // NUR bei Erfolg cleanup, sonst stehen lassen für manuelles Debug
+            if (success && containerId != null && !containerId.isBlank()) {
                 dockerStop(containerId);
                 dockerRm(containerId);
+            } else if (!success && containerId != null && !containerId.isBlank()) {
+                System.err.println("Container kept for inspection: " + containerId);
             }
         }
     }
 
-
-    private String dockerRun(BenchmarkConfig cfg, int port) throws IOException, InterruptedException {
+    private String dockerRun(BenchmarkConfig cfg, int port, String effectiveJavaToolOptions) throws IOException, InterruptedException {
         // docker run -d -p <port>:8080 <image>
         List<String> cmd = new ArrayList<>();
         cmd.add("docker");
@@ -99,6 +113,12 @@ public class SingleRun {
             String joined = String.join(" ", cfg.jvmArgs());
             cmd.add("-e");
             cmd.add("JAVA_TOOL_OPTIONS=" + joined);
+        }
+
+        // JAVA_TOOL_OPTIONS setzen (nur wenn nicht native)
+        if (!cfg.isNative() && effectiveJavaToolOptions != null && !effectiveJavaToolOptions.isBlank()) {
+            cmd.add("-e");
+            cmd.add("JAVA_TOOL_OPTIONS=" + effectiveJavaToolOptions);
         }
 
         cmd.add(cfg.dockerImage());
@@ -209,9 +229,12 @@ public class SingleRun {
         }
     }
     private static String computeEffectiveJavaToolOptions(BenchmarkConfig cfg) {
-        if (cfg.isNative()) return null; // native ignorieren
-        if (cfg.jvmArgs() == null || cfg.jvmArgs().isEmpty()) return "";
-        return String.join(" ", cfg.jvmArgs());
+        if (cfg.isNative()) return null;
+
+        List<String> args = new ArrayList<>();
+        if (cfg.jvmArgs() != null) args.addAll(cfg.jvmArgs());
+
+        return String.join(" ", args);
     }
 
     private String dockerLogsTail(String containerId, int tailLines) throws IOException, InterruptedException {
@@ -229,6 +252,11 @@ public class SingleRun {
         return res.stdout;
     }
 
+    private static String trimSnippet(String s, int maxChars) {
+        if (s == null) return null;
+        if (s.length() <= maxChars) return s;
+        return s.substring(0, maxChars) + "\n... (truncated)";
+    }
 
     private record ExecResult(int exitCode, String stdout, String stderr) {}
 }

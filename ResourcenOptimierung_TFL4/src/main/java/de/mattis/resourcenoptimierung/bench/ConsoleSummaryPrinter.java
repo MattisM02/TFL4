@@ -96,6 +96,16 @@ public final class ConsoleSummaryPrinter {
                 System.out.printf("   docker end mem: %s / %s (%.2f%%)%n",
                         end.memUsageRaw(), end.memLimitRaw(), end.memPercent());
             }
+            System.out.printf("   flags: %s%n",
+                    r.effectiveJavaToolOptions() == null ? "(native)" : r.effectiveJavaToolOptions());
+
+            if (r.startupLogSnippet() != null && !r.startupLogSnippet().isBlank()) {
+                System.out.println("   startup log (trimmed):");
+                String[] lines = r.startupLogSnippet().split("\n");
+                for (int i = 0; i < Math.min(5, lines.length); i++) {
+                    System.out.println("     " + lines[i]);
+                }
+            }
         }
     }
 

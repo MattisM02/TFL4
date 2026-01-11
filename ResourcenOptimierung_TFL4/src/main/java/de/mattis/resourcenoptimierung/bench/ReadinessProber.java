@@ -42,15 +42,17 @@ public final class ReadinessProber {
     }
 
     private boolean pollUntil200(String url, Duration timeout) throws Exception {
-        long start = System.nanoTime();
-        long deadlineNanos = start + timeout.toNanos();
+        long deadlineNanos = System.nanoTime() + timeout.toNanos();
 
         while (System.nanoTime() < deadlineNanos) {
             int code = tryGetStatus(url);
             if (code == 200) return true;
 
-            // bei 401/403/404 etc. nicht “abbrechen”, sondern einfach Fallback später ermöglichen
-            // hier: kurzer Sleep, damit wir nicht spammen
+            // Fallback, wenn Endpoint nicht verfügbar/gesichert ist
+            if (code == 401 || code == 403 || code == 404) {
+                return false;
+            }
+
             Thread.sleep(150);
         }
         return false;

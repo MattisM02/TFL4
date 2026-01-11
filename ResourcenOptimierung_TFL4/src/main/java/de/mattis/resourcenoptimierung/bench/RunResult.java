@@ -11,5 +11,7 @@ public record RunResult(
         List<DockerStatSample> dockerSamples,
         DockerStatSample dockerEndSample,
         String effectiveJavaToolOptions,
-        ReadinessCheckUsed readinessCheckUsed) { }
+        ReadinessCheckUsed readinessCheckUsed,
+        String startupLogSnippet
+) { }
 
