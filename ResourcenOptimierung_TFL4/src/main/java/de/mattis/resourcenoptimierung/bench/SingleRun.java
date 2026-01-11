@@ -58,8 +58,8 @@ public class SingleRun {
                     firstJsonSeconds,
                     jsonLatencies,
                     stats,
-                    end
-            );
+                    end,
+                    null, "");
         } finally {
             // best-effort cleanup
             if (containerId != null && !containerId.isBlank()) {
@@ -70,10 +70,7 @@ public class SingleRun {
     }
 
     private String dockerRun(BenchmarkConfig cfg, int port) throws IOException, InterruptedException {
-        // Beispiel: docker run -d --rm -p 8080:8080 --name <unique> <image> ...
-        // JVM Args kannst du entweder als ENV übergeben oder als CMD, je nach Image.
-        // Ich nehme hier: Image startet schon korrekt, cfg.jvmArgs() nur als Platzhalter.
-
+        // docker run -d -p <port>:8080 <image>
         List<String> cmd = new ArrayList<>();
         cmd.add("docker");
         cmd.add("run");
@@ -81,17 +78,14 @@ public class SingleRun {
         cmd.add("-p");
         cmd.add(port + ":8080");
 
-        // Optional: Ressourcenlimits (falls du die brauchst)
-        // cmd.add("--memory"); cmd.add("768m");
-        // cmd.add("--cpus"); cmd.add("1");
-
-        // falls du einen festen Container-Namen willst:
-        // cmd.add("--name"); cmd.add("demo-" + cfg.name() + "-" + System.currentTimeMillis());
+        // JAVA_TOOL_OPTIONS setzen (nur wenn JVM-Args vorhanden UND nicht native)
+        if (!cfg.isNative() && cfg.jvmArgs() != null && !cfg.jvmArgs().isEmpty()) {
+            String joined = String.join(" ", cfg.jvmArgs());
+            cmd.add("-e");
+            cmd.add("JAVA_TOOL_OPTIONS=" + joined);
+        }
 
         cmd.add(cfg.dockerImage());
-
-        // Wenn dein Image ein ENTRYPOINT hat, das JVM args akzeptiert, könntest du sie hier anhängen:
-        // cmd.addAll(cfg.jvmArgs());
 
         ExecResult res = exec(cmd, Duration.ofSeconds(30));
         if (res.exitCode != 0) {
@@ -99,6 +93,7 @@ public class SingleRun {
         }
         return res.stdout.trim(); // container id
     }
+
 
     private long measureReadinessMs() throws Exception {
         URI uri = URI.create("http://localhost:" + port + "/actuator/health/readiness");
@@ -221,6 +216,27 @@ public class SingleRun {
             return sb.toString();
         }
     }
+    private static String computeEffectiveJavaToolOptions(BenchmarkConfig cfg) {
+        if (cfg.isNative()) return null; // native ignorieren
+        if (cfg.jvmArgs() == null || cfg.jvmArgs().isEmpty()) return "";
+        return String.join(" ", cfg.jvmArgs());
+    }
+
+    private String dockerLogsTail(String containerId, int tailLines) throws IOException, InterruptedException {
+        List<String> cmd = new ArrayList<>();
+        cmd.add("docker");
+        cmd.add("logs");
+        cmd.add("--tail");
+        cmd.add(Integer.toString(tailLines));
+        cmd.add(containerId);
+
+        ExecResult res = exec(cmd, Duration.ofSeconds(10));
+        if (res.exitCode != 0) {
+            return "docker logs failed: " + res.stderr;
+        }
+        return res.stdout;
+    }
+
 
     private record ExecResult(int exitCode, String stdout, String stderr) {}
 }

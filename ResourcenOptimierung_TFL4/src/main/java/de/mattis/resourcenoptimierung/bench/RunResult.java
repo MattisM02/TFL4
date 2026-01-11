@@ -9,6 +9,6 @@ public record RunResult(
         double firstJsonSeconds,
         List<Double> jsonLatenciesSeconds,
         List<DockerStatSample> dockerSamples,
-        DockerStatSample dockerEndSample
-) {}
+        DockerStatSample dockerEndSample,
+        String effectiveJavaToolOptions, String startupLogSnippet) {}
 
