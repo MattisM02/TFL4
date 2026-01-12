@@ -47,7 +47,6 @@ public class BenchCli {
         System.out.println("  1) /json  (payload-heavy, default n=200000)");
         System.out.println("  2) /alloc (alloc-heavy,  default n=10000000)");
         System.out.print("Enter 1 or 2 (default: 1): ");
-        System.out.println();
 
         String line = br.readLine();
         if (line == null || line.isBlank() || line.trim().equals("1")) {

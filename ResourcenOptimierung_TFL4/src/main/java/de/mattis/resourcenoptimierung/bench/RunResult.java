@@ -8,12 +8,13 @@ public record RunResult(
         long readinessMs,
         double firstSeconds,
         List<Double> jsonLatenciesSeconds,
-        List<DockerStatSample> dockerSamples,
-        DockerStatSample dockerEndSample,
         String effectiveJavaToolOptions,
         ReadinessCheckUsed readinessCheckUsed,
         String startupLogSnippet,
         BenchmarkScenario scenario,
         int workloadN,
-        String workloadPath) { }
+        String workloadPath,
+        List<DockerStatSample> dockerIdleSamples,
+        List<DockerStatSample> dockerLoadSamples,
+        List<DockerStatSample> dockerPostSamples) { }
 

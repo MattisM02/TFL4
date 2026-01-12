@@ -47,22 +47,22 @@ public class SingleRun {
     public RunResult execute() throws Exception {
         boolean success = false;
         try {
-            String path = workloadPath();
-
-            // JVM Flags explizit festhalten (inkl. Proof-Arg, falls du das oben ergänzt hast)
+            // 1) Flags berechnen (und im Result speichern)
             String effectiveJavaToolOptions = computeEffectiveJavaToolOptions(cfg);
 
-            // dockerRun nutzt exakt das, was du im Result speicherst
+            // 2) Container starten
             containerId = dockerRun(cfg, port, effectiveJavaToolOptions);
 
-            // Proof: kurze Start-Logs speichern
+            // 3) Proof: kurze Start-Logs speichern (best-effort)
             String startupLogSnippet = null;
             if (!cfg.isNative()) {
-                String logs = dockerLogsTail(containerId, 200);
-                startupLogSnippet = trimSnippet(logs, 2000);
+                try {
+                    String logs = dockerLogsTail(containerId, 200);
+                    startupLogSnippet = trimSnippet(logs, 2000);
+                } catch (Exception ignored) {}
             }
 
-            // Readiness robust (readiness -> health -> /json)
+            // 4) Readiness (robust)
             ReadinessProber prober = new ReadinessProber();
             ReadinessProber.ReadinessResult rr =
                     prober.waitUntilReady("http://localhost:" + port, readinessTimeout);
@@ -70,16 +70,34 @@ public class SingleRun {
             long readinessMs = rr.readinessMs();
             ReadinessCheckUsed readinessCheckUsed = rr.used();
 
+            // 5) Workload bestimmen (/json?n=... oder /alloc?n=...)
+            String path = workloadPath();
+
+            // 6) Idle samples direkt nach readiness
+            List<DockerStatSample> dockerIdleSamples = dockerStatsSamples(containerId, 3, 1);
+
+            // 7) Während Load parallel samplen
+            List<DockerStatSample> dockerLoadSamples = new ArrayList<>();
+            Thread sampler = startDockerSampler(dockerLoadSamples, containerId, 10, 1);
+
+            // 8) First request separat messen
             double firstSeconds = measureEndpointSeconds(path);
 
-            int warmupN = 20;
-            int measureN = 100;
+            // 9) Warmup + Messung
+            warmup(path, 20);
+            List<Double> jsonLatenciesSeconds = measureManySeconds(path, 100);
 
-            warmup(path, warmupN);
-            List<Double> jsonLatenciesSeconds = measureManySeconds(path, measureN);
+            // 10) Warten bis sampler fertig (best-effort)
+            try {
+                sampler.join(Duration.ofSeconds(15).toMillis());
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+            }
 
-            List<DockerStatSample> dockerSamples = dockerStatsSamples(containerId, 5, 1);
-            DockerStatSample dockerEndSample = dockerStatsNoStream(containerId);
+            // 11) Post samples
+            List<DockerStatSample> dockerPostSamples = dockerStatsSamples(containerId, 3, 1);
+
+            // 12) Ergebnis bauen
 
             RunResult result = new RunResult(
                     cfg.name(),
@@ -87,14 +105,15 @@ public class SingleRun {
                     readinessMs,
                     firstSeconds,
                     jsonLatenciesSeconds,
-                    dockerSamples,
-                    dockerEndSample,
                     effectiveJavaToolOptions,
                     readinessCheckUsed,
                     startupLogSnippet,
                     scenario,
                     workloadN,
-                    path
+                    path,
+                    dockerIdleSamples,
+                    dockerLoadSamples,
+                    dockerPostSamples
             );
 
             success = true;
@@ -102,13 +121,14 @@ public class SingleRun {
 
         } catch (RuntimeException e) {
             if (containerId != null && !containerId.isBlank()) {
-                String logs = dockerLogsTail(containerId, 200);
-                System.err.println("=== docker logs (tail 200) ===");
-                System.err.println(logs);
+                try {
+                    String logs = dockerLogsTail(containerId, 200);
+                    System.err.println("=== docker logs (tail 200) ===");
+                    System.err.println(logs);
+                } catch (Exception ignored) {}
             }
             throw e;
         } finally {
-            // NUR bei Erfolg cleanup, sonst stehen lassen für manuelles Debug
             if (success && containerId != null && !containerId.isBlank()) {
                 dockerStop(containerId);
                 dockerRm(containerId);
@@ -126,6 +146,13 @@ public class SingleRun {
         cmd.add("-d");
         cmd.add("-p");
         cmd.add(port + ":8080");
+
+        // memory limit
+        cmd.add("--cpus");
+        cmd.add("1");
+        cmd.add("--memory");
+        cmd.add("768m");
+
 
         // JAVA_TOOL_OPTIONS setzen (nur wenn JVM-Args vorhanden UND nicht native)
         if (!cfg.isNative() && cfg.jvmArgs() != null && !cfg.jvmArgs().isEmpty()) {
@@ -276,6 +303,23 @@ public class SingleRun {
         if (s.length() <= maxChars) return s;
         return s.substring(0, maxChars) + "\n... (truncated)";
     }
+
+    private Thread startDockerSampler(List<DockerStatSample> target, String containerId, int samples, int sleepSeconds) {
+        Thread t = new Thread(() -> {
+            try {
+                for (int i = 0; i < samples; i++) {
+                    target.add(dockerStatsNoStream(containerId));
+                    if (i < samples - 1) Thread.sleep(sleepSeconds * 1000L);
+                }
+            } catch (Exception ignored) {
+                // best-effort
+            }
+        }, "docker-stats-sampler");
+        t.setDaemon(true);
+        t.start();
+        return t;
+    }
+
 
     private record ExecResult(int exitCode, String stdout, String stderr) {}
 }

@@ -109,10 +109,28 @@ public final class ConsoleSummaryPrinter {
                             r.readinessCheckUsed()
                     );
 
-                    DockerStatSample end = r.dockerEndSample();
-                    if (end != null) {
-                        System.out.printf("   docker end mem: %s / %s (%.2f%%)%n",
-                                end.memUsageRaw(), end.memLimitRaw(), end.memPercent());
+                    DockerPhaseStats idle = phaseStats(r.dockerIdleSamples());
+                    DockerPhaseStats load = phaseStats(r.dockerLoadSamples());
+                    DockerPhaseStats post = phaseStats(r.dockerPostSamples());
+
+                    // Fokus: Werte unter Last
+                    if (load != null) {
+                        System.out.printf("   docker LOAD: cpu avg=%.2f%%  mem avg=%.2f%%  mem max=%.2f%%  memUsage(max)=%s%n",
+                                load.cpuAvg(),
+                                load.memPercAvg(),
+                                load.memPercMax(),
+                                load.memUsageAtMax()
+                        );
+                    }
+
+                    // Optional: idle/post zum Vergleich
+                    if (idle != null) {
+                        System.out.printf("   docker IDLE: mem avg=%.2f%%  mem max=%.2f%%%n",
+                                idle.memPercAvg(), idle.memPercMax());
+                    }
+                    if (post != null) {
+                        System.out.printf("   docker POST: mem avg=%.2f%%  mem max=%.2f%%%n",
+                                post.memPercAvg(), post.memPercMax());
                     }
 
                     System.out.println("   flags: " + flags);
@@ -140,4 +158,36 @@ public final class ConsoleSummaryPrinter {
         if (flags.isBlank()) return "(none)";
         return flags;
     }
+    private record DockerPhaseStats(
+            double cpuAvg,
+            double memPercAvg,
+            double memPercMax,
+            String memUsageAtMax
+    ) {}
+
+    private static DockerPhaseStats phaseStats(List<DockerStatSample> samples) {
+        if (samples == null || samples.isEmpty()) return null;
+
+        double cpuSum = 0.0;
+        double memSum = 0.0;
+
+        double memMax = -1.0;
+        String memUsageAtMax = null;
+
+        for (DockerStatSample s : samples) {
+            cpuSum += s.cpuPercent();
+            memSum += s.memPercent();
+
+            if (s.memPercent() > memMax) {
+                memMax = s.memPercent();
+                memUsageAtMax = s.memUsageRaw() + " / " + s.memLimitRaw();
+            }
+        }
+
+        double cpuAvg = cpuSum / samples.size();
+        double memAvg = memSum / samples.size();
+
+        return new DockerPhaseStats(cpuAvg, memAvg, memMax, memUsageAtMax);
+    }
+
 }
