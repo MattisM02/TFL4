@@ -1,4 +1,0 @@
-configName,dockerImage,readinessMs,firstJsonSeconds,latencyCount,latencyAvg,latencyP50,latencyP95,latencyP99
-baseline,jvm-optim-demo:jvm,2760,0.1238079,20,0.062436120000000005,0.0620678,0.0680743,0.0703198
-coops-off,jvm-optim-demo:jvm,2181,0.1210722,20,0.060221775,0.0596856,0.0682331,0.0688482
-coh-on,jvm-optim-demo:jvm,2312,0.116199,20,0.05690598,0.0553445,0.0610081,0.0666774

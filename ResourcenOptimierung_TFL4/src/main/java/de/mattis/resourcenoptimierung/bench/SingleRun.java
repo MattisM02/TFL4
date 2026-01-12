@@ -17,26 +17,38 @@ public class SingleRun {
     private final BenchmarkConfig cfg;
     private final int port;
     private final Duration readinessTimeout;
-
     private String containerId;
+    private final BenchmarkScenario scenario;
+    private final int workloadN;
+
+    public SingleRun(BenchmarkConfig cfg, BenchmarkScenario scenario, int workloadN) {
+        this(cfg, scenario, workloadN, 8080, Duration.ofSeconds(120));
+    }
+
+    public SingleRun(BenchmarkConfig cfg, BenchmarkScenario scenario, int workloadN, int port, Duration readinessTimeout) {
+        this.cfg = cfg;
+        this.scenario = scenario;
+        this.workloadN = workloadN;
+        this.port = port;
+        this.readinessTimeout = readinessTimeout;
+    }
+
+    private String workloadPath() {
+        return switch (scenario) {
+            case PAYLOAD_HEAVY_JSON -> "/json?n=" + workloadN;
+            case ALLOC_HEAVY_OK -> "/alloc?n=" + workloadN;
+        };
+    }
 
     private final HttpClient http = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(2))
             .build();
 
-    public SingleRun(BenchmarkConfig cfg) {
-        this(cfg, 8080, Duration.ofSeconds(120));
-    }
-
-    public SingleRun(BenchmarkConfig cfg, int port, Duration readinessTimeout) {
-        this.cfg = cfg;
-        this.port = port;
-        this.readinessTimeout = readinessTimeout;
-    }
-
     public RunResult execute() throws Exception {
         boolean success = false;
         try {
+            String path = workloadPath();
+
             // JVM Flags explizit festhalten (inkl. Proof-Arg, falls du das oben ergänzt hast)
             String effectiveJavaToolOptions = computeEffectiveJavaToolOptions(cfg);
 
@@ -58,9 +70,13 @@ public class SingleRun {
             long readinessMs = rr.readinessMs();
             ReadinessCheckUsed readinessCheckUsed = rr.used();
 
-            double firstJsonSeconds = measureEndpointSeconds("/json");
-            warmup("/json", 5);
-            List<Double> jsonLatenciesSeconds = measureManySeconds("/json", 20);
+            double firstSeconds = measureEndpointSeconds(path);
+
+            int warmupN = 20;
+            int measureN = 100;
+
+            warmup(path, warmupN);
+            List<Double> jsonLatenciesSeconds = measureManySeconds(path, measureN);
 
             List<DockerStatSample> dockerSamples = dockerStatsSamples(containerId, 5, 1);
             DockerStatSample dockerEndSample = dockerStatsNoStream(containerId);
@@ -69,13 +85,16 @@ public class SingleRun {
                     cfg.name(),
                     cfg.dockerImage(),
                     readinessMs,
-                    firstJsonSeconds,
+                    firstSeconds,
                     jsonLatenciesSeconds,
                     dockerSamples,
                     dockerEndSample,
                     effectiveJavaToolOptions,
                     readinessCheckUsed,
-                    startupLogSnippet
+                    startupLogSnippet,
+                    scenario,
+                    workloadN,
+                    path
             );
 
             success = true;

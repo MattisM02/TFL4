@@ -6,12 +6,14 @@ public record RunResult(
         String configName,
         String dockerImage,
         long readinessMs,
-        double firstJsonSeconds,
+        double firstSeconds,
         List<Double> jsonLatenciesSeconds,
         List<DockerStatSample> dockerSamples,
         DockerStatSample dockerEndSample,
         String effectiveJavaToolOptions,
         ReadinessCheckUsed readinessCheckUsed,
-        String startupLogSnippet
-) { }
+        String startupLogSnippet,
+        BenchmarkScenario scenario,
+        int workloadN,
+        String workloadPath) { }
 

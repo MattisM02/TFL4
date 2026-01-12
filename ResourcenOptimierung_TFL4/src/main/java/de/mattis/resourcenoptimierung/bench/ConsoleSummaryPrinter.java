@@ -3,7 +3,9 @@ package de.mattis.resourcenoptimierung.bench;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.DoubleSummaryStatistics;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 public final class ConsoleSummaryPrinter {
 
@@ -17,99 +19,105 @@ public final class ConsoleSummaryPrinter {
             return;
         }
 
-        // --- Readiness ---
-        DoubleSummaryStatistics readinessStats = results.stream()
+        // Gruppieren nach Scenario (stabile Reihenfolge)
+        Map<BenchmarkScenario, List<RunResult>> byScenario = new LinkedHashMap<>();
+        for (RunResult r : results) {
+            BenchmarkScenario sc = r.scenario();
+            byScenario.computeIfAbsent(sc, k -> new ArrayList<>()).add(r);
+        }
+
+        for (Map.Entry<BenchmarkScenario, List<RunResult>> entry : byScenario.entrySet()) {
+            BenchmarkScenario scenario = entry.getKey();
+            List<RunResult> group = entry.getValue();
+
+            System.out.println();
+            System.out.println("=== Scenario: " + scenario + " ===");
+
+            printScenarioSummary(group);
+            printPerRun(group);
+        }
+    }
+
+    private static void printScenarioSummary(List<RunResult> group) {
+        // Readiness
+        DoubleSummaryStatistics readinessStats = group.stream()
                 .mapToDouble(RunResult::readinessMs)
                 .summaryStatistics();
 
-        // --- First JSON ---
-        DoubleSummaryStatistics firstJsonStats = results.stream()
-                .mapToDouble(RunResult::firstJsonSeconds)
+        // First request
+        DoubleSummaryStatistics firstStats = group.stream()
+                .mapToDouble(RunResult::firstSeconds)
                 .summaryStatistics();
 
-        // --- All JSON latencies combined ---
+        // All latencies combined
         List<Double> allLatencies = new ArrayList<>();
-        for (RunResult r : results) {
+        for (RunResult r : group) {
             allLatencies.addAll(r.jsonLatenciesSeconds());
         }
         allLatencies.sort(Double::compareTo);
 
-        System.out.println("Runs: " + results.size());
+        System.out.println("Runs: " + group.size());
+
         System.out.printf("Readiness (ms)   min/avg/max: %.0f / %.1f / %.0f%n",
                 readinessStats.getMin(),
                 readinessStats.getAverage(),
                 readinessStats.getMax());
 
-        System.out.printf("First JSON (s)   min/avg/max: %.3f / %.3f / %.3f%n",
-                firstJsonStats.getMin(),
-                firstJsonStats.getAverage(),
-                firstJsonStats.getMax());
+        System.out.printf("First (s)        min/avg/max: %.3f / %.3f / %.3f%n",
+                firstStats.getMin(),
+                firstStats.getAverage(),
+                firstStats.getMax());
 
         if (!allLatencies.isEmpty()) {
-            System.out.printf("JSON latency (s) p50/p95/p99: %.3f / %.3f / %.3f%n",
+            System.out.printf("Latency (s)      p50/p95/p99: %.3f / %.3f / %.3f  (n=%d)%n",
                     percentile(allLatencies, 0.50),
                     percentile(allLatencies, 0.95),
-                    percentile(allLatencies, 0.99));
-        }
-
-        System.out.println();
-        System.out.println("Top 5 slowest configs (by p95 latency):");
-
-        results.stream()
-                .sorted(Comparator.comparingDouble(ConsoleSummaryPrinter::p95).reversed())
-                .limit(5)
-                .forEach(r ->
-                        System.out.printf(" - %-30s  p95=%.3f s  image=%s%n",
-                                r.configName(),
-                                p95(r),
-                                r.dockerImage())
-                );
-
-        System.out.println();
-        System.out.println("Per run (latencies: median/p95/mean, plus docker end mem):");
-
-        for (RunResult r : results) {
-            List<Double> l = new ArrayList<>(r.jsonLatenciesSeconds());
-            l.sort(Double::compareTo);
-
-            double median = percentile(l, 0.50);
-            double p95 = percentile(l, 0.95);
-            double mean = l.stream().mapToDouble(Double::doubleValue).average().orElse(Double.NaN);
-
-            String kind = (r.dockerImage() != null && r.dockerImage().contains("native")) ? "NATIVE" : "JVM";
-
-            System.out.printf(
-                    " - %-20s (%s) readiness=%dms first=%.3fs  median=%.3fs p95=%.3fs mean=%.3fs  n=%d  check=%s%n",
-                    r.configName(),
-                    kind,
-                    r.readinessMs(),
-                    r.firstJsonSeconds(),
-                    median,
-                    p95,
-                    mean,
-                    r.jsonLatenciesSeconds().size(),
-                    r.readinessCheckUsed()
+                    percentile(allLatencies, 0.99),
+                    allLatencies.size()
             );
-
-            DockerStatSample end = r.dockerEndSample();
-            if (end != null) {
-                System.out.printf("   docker end mem: %s / %s (%.2f%%)%n",
-                        end.memUsageRaw(), end.memLimitRaw(), end.memPercent());
-            }
-
-            String flags = r.effectiveJavaToolOptions();
-            if (flags == null) flags = "(native)";
-            if (flags.isBlank()) flags = "(none)";
-            System.out.println("   flags: " + flags);
-
-            if (r.startupLogSnippet() != null && !r.startupLogSnippet().isBlank()) {
-                System.out.println("   startup log (trimmed):");
-                String[] lines = r.startupLogSnippet().split("\n");
-                for (int i = 0; i < Math.min(5, lines.length); i++) {
-                    System.out.println("     " + lines[i]);
-                }
-            }
         }
+    }
+
+    private static void printPerRun(List<RunResult> group) {
+        System.out.println();
+        System.out.println("Per run (median/p95/mean + docker mem end + flags):");
+
+        // nach p95 sortieren
+        group.stream()
+                .sorted(Comparator.comparingDouble(ConsoleSummaryPrinter::p95).reversed())
+                .forEach(r -> {
+                    List<Double> l = new ArrayList<>(r.jsonLatenciesSeconds());
+                    l.sort(Double::compareTo);
+
+                    double median = percentile(l, 0.50);
+                    double p95 = percentile(l, 0.95);
+                    double mean = l.stream().mapToDouble(Double::doubleValue).average().orElse(Double.NaN);
+
+                    String flags = normalizeFlagsForPrint(r.effectiveJavaToolOptions());
+                    String kind = (r.dockerImage() != null && r.dockerImage().contains("native")) ? "NATIVE" : "JVM";
+
+                    System.out.printf(
+                            " - %-20s (%s) readiness=%dms first=%.3fs  median=%.3fs p95=%.3fs mean=%.3fs  req=%d  check=%s%n",
+                            r.configName(),
+                            kind,
+                            r.readinessMs(),
+                            r.firstSeconds(),
+                            median,
+                            p95,
+                            mean,
+                            r.jsonLatenciesSeconds().size(),
+                            r.readinessCheckUsed()
+                    );
+
+                    DockerStatSample end = r.dockerEndSample();
+                    if (end != null) {
+                        System.out.printf("   docker end mem: %s / %s (%.2f%%)%n",
+                                end.memUsageRaw(), end.memLimitRaw(), end.memPercent());
+                    }
+
+                    System.out.println("   flags: " + flags);
+                    System.out.println("   workload: " + r.workloadPath());
+                });
     }
 
     private static double p95(RunResult r) {
@@ -125,5 +133,11 @@ public final class ConsoleSummaryPrinter {
         int idx = (int) Math.ceil(p * sorted.size()) - 1;
         idx = Math.max(0, Math.min(idx, sorted.size() - 1));
         return sorted.get(idx);
+    }
+
+    private static String normalizeFlagsForPrint(String flags) {
+        if (flags == null) return "(native)";
+        if (flags.isBlank()) return "(none)";
+        return flags;
     }
 }
