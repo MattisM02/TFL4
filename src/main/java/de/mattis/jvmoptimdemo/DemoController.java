@@ -8,37 +8,40 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Spring MVC REST-Controller, der gezielt zwei verschiedene Workloads bereitstellt, um JVM-Optimierungen
- * (z. B. CompressedOops, Compact Object Headers, GC-Verhalten) vergleichbar zu messen.
+ * Spring MVC REST-Controller mit zwei bewusst unterschiedlichen Workloads,
+ * die für Benchmark-Zwecke genutzt werden.
  *
- * <p>Wichtig: Diese Klasse wird nicht “direkt” im Code aufgerufen. Spring Boot erkennt sie zur Laufzeit über
- * {@link RestController} und mappt die Methoden anhand der {@link GetMapping}-Annotationen auf HTTP-Routen.</p>
+ * Ziel ist es, JVM-Optimierungen wie Compressed OOPs, Compact Object Headers
+ * oder Native Images vergleichbar zu messen.
  *
- * <p><b>Workloads</b></p>
- * <ul>
- *   <li><b>/json</b> (payload-heavy): Erzeugt viele kleine DTO-Objekte und gibt sie als JSON zurück.
- *       Das misst E2E: Objekt-Erzeugung + Serialisierung + Netzwerk + Client liest Response.</li>
- *   <li><b>/alloc</b> (alloc-heavy): Erzeugt sehr viele kurzlebige Objekte/Arrays, Antwort bleibt klein ("ok ...").
- *       Das isoliert stärker serverseitige Allocation/GC/Objektlayout-Effekte.</li>
- * </ul>
+ * Die Methoden dieser Klasse werden nicht direkt aufgerufen.
+ * Spring Boot erkennt den Controller automatisch über die @RestController-
+ * Annotation und stellt die Methoden als HTTP-Endpunkte bereit.
  *
- * <p>Die Parameter {@code n} erlauben, die “Stärke” der Workload zu skalieren, ohne neue Endpoints zu bauen.</p>
+ * Enthaltene Workloads:
+ * - /json  : payload-lastig (Objekterzeugung + JSON-Serialisierung)
+ * - /alloc : allocation-lastig (Heap-Druck und GC-Verhalten)
+ *
+ * Über den Parameter n kann die Intensität der Workloads skaliert werden.
  */
 
 @RestController
 public class DemoController {
 
     /**
-     * Payload-heavy Workload: Erzeugt {@code n} {@link UserDto} und gibt sie als JSON-Array zurück.
+     * Payload-lastiger Workload.
      *
-     * <p>Parameter:</p>
-     * <ul>
-     *   <li>{@code n}: Anzahl der zu erzeugenden UserDto-Objekte (Default: 200000).</li>
-     * </ul>
+     * Erzeugt n UserDto-Objekte und gibt sie als JSON-Array zurück.
+     * Damit werden Objekterzeugung, Objektgraph-Größe und JSON-Serialisierung
+     * gemeinsam belastet.
      *
-     * @param n Anzahl der DTOs (Payload-Größe)
-     * @return Liste von {@link UserDto}, wird von Spring/Jackson als JSON serialisiert
+     * Parameter:
+     * - n: Anzahl der zu erzeugenden DTOs (Default: 200000)
+     *
+     * @param n Anzahl der DTOs
+     * @return Liste von UserDto, die als JSON serialisiert wird
      */
+    @GetMap
     @GetMapping("/json")
     public List<UserDto> json(
             @RequestParam(name = "n", defaultValue = "200000") int n
@@ -51,19 +54,20 @@ public class DemoController {
     }
 
     /**
-     * Alloc-heavy Workload: Erzeugt viele kurzlebige Byte-Arrays (Heap-Druck/GC),
-     * liefert aber nur eine kleine Text-Antwort.
+     * Allocation-lastiger Workload.
      *
-     * <p>Hinweis: Es wird in Chunks gearbeitet, damit keine riesige Liste mit {@code n} Elementen entsteht.</p>
+     * Erzeugt sehr viele kurzlebige Byte-Arrays, um Heap-Allokation,
+     * Objektlayout und Garbage Collection zu belasten.
+     * Die HTTP-Antwort selbst bleibt bewusst klein.
      *
-     * <p>Parameter:</p>
-     * <ul>
-     *   <li>{@code n}: Zielanzahl der zu erzeugenden Arrays (Default: 10000000).
-     *       Intern wird das über {@code rounds = n / chunkSize} realisiert (Rest wird ignoriert).</li>
-     * </ul>
+     * Um extrem große Datenstrukturen zu vermeiden, wird intern
+     * in festen Chunks gearbeitet.
      *
-     * @param n Zielanzahl der Arrays (Allocation-Menge)
-     * @return "ok &lt;sum&gt;" (sum verhindert komplette Wegoptimierung durch JIT)
+     * Parameter:
+     * - n: Zielanzahl der zu erzeugenden Arrays (Default: 10000000)
+     *
+     * @param n Zielanzahl der Allokationen
+     * @return einfache Textantwort ("ok <sum>")
      */
     @GetMapping("/alloc")
     public String alloc(
@@ -88,11 +92,11 @@ public class DemoController {
     }
 
     /**
-     * DTO für den {@code /json}-Endpoint.
+     * Einfaches DTO für den /json-Endpunkt.
      *
-     * @param name Benutzername (z. B. "user123")
-     * @param age Alter (hier gleich dem Index)
-     * @param active Aktiv-Flag (hier alternierend)
+     * @param name Benutzername
+     * @param age Alter (hier identisch mit dem Index)
+     * @param active Aktiv-Flag
      */
     public record UserDto(String name, int age, boolean active) {}
 }

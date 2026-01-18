@@ -13,78 +13,68 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Führt einen einzelnen Benchmark-Run für genau eine {@link BenchmarkConfig} aus.
+ * Führt einen einzelnen Benchmark-Run für genau eine BenchmarkConfig aus.
  *
- * <p>Ein {@code SingleRun} kapselt die komplette Ablauf- und Messlogik für <b>einen</b> Run:</p>
- * <ol>
- *   <li>Docker-Container starten (inkl. JVM-Flags via {@code JAVA_TOOL_OPTIONS})</li>
- *   <li>Readiness abwarten (mit Fallback-Strategie)</li>
- *   <li>Workload ausführen (Warmup + Messphase)</li>
- *   <li>Docker-Stats in Phasen sammeln (IDLE / LOAD / POST)</li>
- *   <li>Alles in einem {@link RunResult} speichern</li>
- * </ol>
+ * Ablauf:
+ * - Container starten (optional mit JAVA_TOOL_OPTIONS)
+ * - Readiness abwarten (mit Fallbacks)
+ * - Workload ausführen (First Request, Warmup, Messphase)
+ * - Docker-Stats in Phasen sammeln (IDLE, LOAD, POST)
+ * - Ergebnis als RunResult zurückgeben
  *
- * <p>Wichtig: Diese Klasse „macht die Arbeit“ im Benchmarking:
- * sie erzeugt die HTTP-Last gegen die laufende Spring-App im Container.
- * Die eigentliche Workload-Implementierung liegt serverseitig im DemoController
- * (z. B. Endpoints {@code /json} und {@code /alloc}).</p>
- *
- * <p>Typische Erzeugung: {@link BenchmarkRunner} erstellt pro {@link BenchmarkConfig} einen {@code SingleRun}.</p>
+ * Diese Klasse enthält die Ausführungs- und Messlogik.
  */
 public class SingleRun {
 
     /**
-     * Konfiguration, die in diesem Run getestet wird (Image + Flags).
+     * Benchmark-Konfiguration für diesen Run.
      */
     private final BenchmarkConfig cfg;
 
     /**
-     * Host-Port, auf den der Container-Port 8080 gemappt wird (z. B. {@code 8080:8080}).
+     * Host-Port für das Port-Mapping auf Container-Port 8080.
      */
     private final int port;
 
     /**
-     * Maximale Zeit, die wir auf „Service ist ready“ warten (inkl. Fallback-Checks).
+     * Maximale Wartezeit bis der Service als "ready" gilt.
      */
     private final Duration readinessTimeout;
 
     /**
-     * Docker Container-ID (wird nach {@code docker run} gesetzt).
-     *
-     * <p>Wird u. a. für docker stats, docker logs und cleanup verwendet.</p>
+     * Container-ID des gestarteten Containers.
      */
     private String containerId;
 
     /**
-     * Workload-Szenario, das für diesen Run ausgeführt wird (z. B. JSON-heavy oder alloc-heavy).
+     * Workload-Szenario für diesen Run.
      */
     private final BenchmarkScenario scenario;
 
     /**
-     * Workload-Größe {@code n} (wird an den Endpoint als Query-Parameter übergeben).
+     * Workload-Größe n für den Endpoint.
      */
     private final int workloadN;
 
     /**
-     * Convenience-Konstruktor mit Default-Port 8080 und 120s Readiness-Timeout.
+     * Erstellt einen SingleRun mit Default-Port 8080 und 120s Readiness-Timeout.
      *
-     * @param cfg       Benchmark-Konfiguration (Image + JVM-Args)
-     * @param scenario  Workload-Szenario
-     * @param workloadN Workload-Größe {@code n}
+     * @param cfg Benchmark-Konfiguration
+     * @param scenario Workload-Szenario
+     * @param workloadN Workload-Größe n
      */
     public SingleRun(BenchmarkConfig cfg, BenchmarkScenario scenario, int workloadN) {
         this(cfg, scenario, workloadN, 8080, Duration.ofSeconds(120));
     }
 
-
     /**
-     * Voller Konstruktor, erlaubt Anpassung von Port und Readiness-Timeout.
+     * Erstellt einen SingleRun mit konfigurierbarem Port und Readiness-Timeout.
      *
-     * @param cfg             Benchmark-Konfiguration (Image + JVM-Args)
-     * @param scenario        Workload-Szenario
-     * @param workloadN       Workload-Größe {@code n}
-     * @param port            Host-Port für Port-Mapping (hostPort:8080)
-     * @param readinessTimeout maximales Zeitfenster bis der Service als „ready“ gilt
+     * @param cfg Benchmark-Konfiguration
+     * @param scenario Workload-Szenario
+     * @param workloadN Workload-Größe n
+     * @param port Host-Port für das Port-Mapping
+     * @param readinessTimeout maximale Wartezeit auf Readiness
      */
     public SingleRun(BenchmarkConfig cfg, BenchmarkScenario scenario, int workloadN, int port, Duration readinessTimeout) {
         this.cfg = cfg;
@@ -95,18 +85,9 @@ public class SingleRun {
     }
 
     /**
-     * Ermittelt den konkreten Workload-Pfad für diesen Run (inkl. Query-Parameter).
+     * Ermittelt den Workload-Pfad inkl. Query-Parameter.
      *
-     * <p>Beispiele:</p>
-     * <ul>
-     *   <li>{@code PAYLOAD_HEAVY_JSON} → {@code /json?n=200000}</li>
-     *   <li>{@code ALLOC_HEAVY_OK} → {@code /alloc?n=10000000}</li>
-     * </ul>
-     *
-     * <p>Dieser String wird sowohl für die Messung genutzt als auch im {@link RunResult}
-     * gespeichert (Reproduzierbarkeit).</p>
-     *
-     * @return Pfad inklusive {@code n}-Parameter
+     * @return Pfad inkl. n-Parameter
      */
     private String workloadPath() {
         return switch (scenario) {
@@ -116,37 +97,22 @@ public class SingleRun {
     }
 
     /**
-     * HTTP-Client für alle Requests innerhalb dieses Runs (Readiness und Messung).
-     *
-     * <p>Kurze Connect-Timeouts sind wichtig, da während des Container-Starts
-     * viele Verbindungsversuche fehlschlagen können (Port noch nicht offen).</p>
+     * HTTP-Client für Requests in diesem Run.
      */
     private final HttpClient http = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(2))
             .build();
 
+
     /**
-     * Führt den kompletten Benchmark-Run aus und gibt ein {@link RunResult} zurück.
+     * Führt den kompletten Run aus und gibt ein RunResult zurück.
      *
-     * <p>Diese Methode ist der zentrale Ablauf eines Runs. Sie übernimmt:</p>
-     * <ol>
-     *   <li>Berechnen/Protokollieren der effektiven JVM-Flags (JAVA_TOOL_OPTIONS)</li>
-     *   <li>Starten des Docker-Containers</li>
-     *   <li>Optionales Einsammeln eines Log-Snippets als „Proof“/Debug-Hilfe</li>
-     *   <li>Readiness abwarten (mit Fallback-Strategie)</li>
-     *   <li>Workload ausführen (First Request separat, dann Warmup, dann Messphase)</li>
-     *   <li>Docker-Stats in Phasen sammeln (IDLE, LOAD, POST)</li>
-     *   <li>Alles in einem {@link RunResult} bündeln</li>
-     * </ol>
+     * Fehlerverhalten:
+     * - Bei Fehlern werden Logs best-effort ausgegeben.
+     * - Bei Erfolg wird der Container gestoppt und entfernt.
+     * - Bei Fehler wird der Container für manuelle Analyse behalten.
      *
-     * <p><b>Fehlerverhalten</b></p>
-     * <ul>
-     *   <li>Wenn ein Fehler auftritt, werden (best-effort) die letzten Container-Logs ausgegeben.</li>
-     *   <li>Bei Erfolg wird der Container gestoppt und gelöscht (Cleanup).</li>
-     *   <li>Bei Fehler wird der Container absichtlich behalten, damit man ihn inspizieren kann.</li>
-     * </ul>
-     *
-     * @return Run-Ergebnis mit Timings, Latenzserie, Flags, Readiness-Info und Docker-Samples
+     * @return Run-Ergebnis
      * @throws Exception wenn Docker/HTTP/Messung fehlschlägt oder Readiness nicht erreicht wird
      */
     public RunResult execute() throws Exception {
@@ -268,30 +234,17 @@ public class SingleRun {
     }
 
     /**
-     * Startet einen Docker-Container für die gegebene {@link BenchmarkConfig} und gibt die Container-ID zurück.
+     * Startet den Container für die gegebene Konfiguration.
      *
-     * <p>Der Container wird im Hintergrund gestartet ({@code -d}) und Port {@code 8080} im Container
-     * wird auf den angegebenen Host-Port gemappt ({@code -p hostPort:8080}).</p>
+     * Setzt CPU- und Memory-Limits für bessere Vergleichbarkeit.
+     * Für JVM-Images wird JAVA_TOOL_OPTIONS gesetzt, für native nicht.
      *
-     * <p>Reproduzierbarkeit/Isolation:</p>
-     * <ul>
-     *   <li>{@code --cpus 1} begrenzt den Container auf 1 CPU-Core (reduziert Scheduling-Varianz).</li>
-     *   <li>{@code --memory 768m} begrenzt den Container-Speicher (macht Memory-Metriken vergleichbarer).</li>
-     * </ul>
-     *
-     * <p>JVM-Flags:</p>
-     * <ul>
-     *   <li>Für JVM-Images werden Flags über die Umgebungsvariable {@code JAVA_TOOL_OPTIONS} gesetzt.</li>
-     *   <li>Für Native Images ist das nicht anwendbar (daher keine Flags).</li>
-     * </ul>
-     *
-     * @param cfg Benchmark-Konfiguration (Image + evtl. JVM-Args)
-     * @param port Host-Port, auf den {@code 8080} im Container gemappt wird
-     * @param effectiveJavaToolOptions finaler, zusammengebauter Flags-String (z. B. "-XX:-UseCompressedOops")
-     * @return Container-ID (stdout von {@code docker run})
-     * @throws IOException wenn das Starten des docker-Prozesses fehlschlägt
-     * @throws InterruptedException wenn der Thread während des docker-Aufrufs unterbrochen wird
-     * @throws RuntimeException wenn {@code docker run} mit Exit-Code != 0 endet
+     * @param cfg Benchmark-Konfiguration
+     * @param port Host-Port für das Port-Mapping
+     * @param effectiveJavaToolOptions Flags als String (oder null bei native)
+     * @return Container-ID
+     * @throws IOException wenn der Prozess nicht gestartet werden kann
+     * @throws InterruptedException wenn der Aufruf unterbrochen wird
      */
     private String dockerRun(BenchmarkConfig cfg, int port, String effectiveJavaToolOptions)
             throws IOException, InterruptedException {
@@ -336,23 +289,11 @@ public class SingleRun {
     }
 
     /**
-     * Misst die End-to-End-Latenz eines HTTP-GET Requests in Sekunden.
+     * Misst die Latenz eines HTTP-GET Requests in Sekunden.
      *
-     * <p>Gemessen wird mit {@link System#nanoTime()} (präzise, monotone Uhr).</p>
-     *
-     * <p>Diese Messung ist bewusst "E2E":</p>
-     * <ul>
-     *   <li>Request-Aufbau + Netzwerk-Overhead</li>
-     *   <li>Server-Bearbeitung</li>
-     *   <li>Antwort lesen (Body wird komplett als String eingelesen)</li>
-     * </ul>
-     *
-     * <p>Damit misst es im JSON-Szenario tatsächlich „Payload komplett angekommen“,
-     * was für payload-heavy Benchmarks sinnvoll ist.</p>
-     *
-     * @param path Pfad relativ zur Base-URL, z. B. {@code "/json?n=200000"}
+     * @param path Pfad inkl. Query (z.B. "/json?n=200000")
      * @return Latenz in Sekunden
-     * @throws Exception wenn HTTP-Request fehlschlägt oder Status != 200 ist
+     * @throws Exception wenn der Request fehlschlägt oder Status != 200 ist
      */
     private double measureEndpointSeconds(String path) throws Exception {
         URI uri = URI.create("http://localhost:" + port + path);
@@ -376,13 +317,7 @@ public class SingleRun {
     /**
      * Führt Warmup-Requests aus, um Messungen zu stabilisieren.
      *
-     * <p>Warmup reduziert typischerweise Varianz durch:</p>
-     * <ul>
-     *   <li>JIT-Compilation / Hot paths (bei JVM)</li>
-     *   <li>Caches (z. B. JSON-Serializer, HTTP keep-alive)</li>
-     * </ul>
-     *
-     * @param path Workload-Endpoint, z. B. {@code "/json?n=..."}
+     * @param path Workload-Pfad
      * @param times Anzahl Warmup-Requests
      * @throws Exception wenn ein Request fehlschlägt
      */
@@ -393,14 +328,11 @@ public class SingleRun {
     }
 
     /**
-     * Führt {@code times} Mess-Requests aus und sammelt die Latenzen in Sekunden.
+     * Führt Mess-Requests aus und sammelt die Latenzen.
      *
-     * <p>Die Rückgabe ist eine Rohdaten-Serie, aus der später Kennzahlen wie median/p95/p99
-     * berechnet werden (siehe {@link ConsoleSummaryPrinter} und {@link ResultExporters}).</p>
-     *
-     * @param path Workload-Endpoint, z. B. {@code "/alloc?n=..."}
-     * @param times Anzahl der Mess-Requests
-     * @return Liste der Latenzen in Sekunden
+     * @param path Workload-Pfad
+     * @param times Anzahl Requests
+     * @return Latenzen in Sekunden
      * @throws Exception wenn ein Request fehlschlägt
      */
     private List<Double> measureManySeconds(String path, int times) throws Exception {
@@ -412,20 +344,12 @@ public class SingleRun {
     }
 
     /**
-     * Liest genau einen Docker-Stats-Snapshot ohne Streaming aus.
+     * Liest einen einzelnen docker stats Snapshot.
      *
-     * <p>Genutzt wird:</p>
-     * <pre>
-     * docker stats --no-stream --format "{{.CPUPerc}}|{{.MemUsage}}|{{.MemPerc}}|{{.NetIO}}|{{.BlockIO}}|{{.PIDs}}"
-     * </pre>
-     *
-     * <p>Die Zeile wird anschließend durch {@link DockerStatSample#parse(String)} geparst.</p>
-     *
-     * @param containerId Container-ID, für die Stats abgefragt werden
-     * @return ein {@link DockerStatSample} als Snapshot
-     * @throws IOException wenn der docker-Prozess nicht gestartet werden kann
-     * @throws InterruptedException wenn der Thread während des docker-Aufrufs unterbrochen wird
-     * @throws RuntimeException wenn {@code docker stats} fehlschlägt (Exit-Code != 0)
+     * @param containerId Container-ID
+     * @return DockerStatSample
+     * @throws IOException wenn der Aufruf fehlschlägt
+     * @throws InterruptedException wenn der Aufruf unterbrochen wird
      */
     private DockerStatSample dockerStatsNoStream(String containerId) throws IOException, InterruptedException {
         String format = "{{.CPUPerc}}|{{.MemUsage}}|{{.MemPerc}}|{{.NetIO}}|{{.BlockIO}}|{{.PIDs}}";
@@ -439,16 +363,14 @@ public class SingleRun {
     }
 
     /**
-     * Erfasst mehrere Docker-Stats-Snapshots in festen Intervallen.
-     *
-     * <p>Beispiel: {@code samples=3, sleepSeconds=1} liefert 3 Messpunkte mit jeweils 1s Abstand.</p>
+     * Erfasst mehrere docker stats Snapshots in festen Intervallen.
      *
      * @param containerId Container-ID
      * @param samples Anzahl Snapshots
-     * @param sleepSeconds Pause zwischen Snapshots (Sekunden)
-     * @return Liste der {@link DockerStatSample}-Snapshots
-     * @throws IOException wenn docker-Calls fehlschlagen
-     * @throws InterruptedException wenn Sleep/Prozessaufruf unterbrochen wird
+     * @param sleepSeconds Pause zwischen Snapshots in Sekunden
+     * @return Liste der Samples
+     * @throws IOException wenn der Aufruf fehlschlägt
+     * @throws InterruptedException wenn Sleep unterbrochen wird
      */
     private List<DockerStatSample> dockerStatsSamples(String containerId, int samples, int sleepSeconds)
             throws IOException, InterruptedException {
@@ -464,10 +386,7 @@ public class SingleRun {
     }
 
     /**
-     * Stoppt einen Docker-Container (best-effort).
-     *
-     * <p>Fehler werden bewusst ignoriert, da Cleanup nicht den gesamten Run
-     * crashen soll (z. B. Container bereits gestoppt).</p>
+     * Stoppt einen Container. Fehler werden ignoriert.
      *
      * @param containerId Container-ID
      */
@@ -478,13 +397,7 @@ public class SingleRun {
     }
 
     /**
-     * Entfernt einen Docker-Container (best-effort).
-     *
-     * <p>Wird typischerweise nach einem erfolgreichen Run im Cleanup aufgerufen.
-     * {@code -f} erzwingt die Entfernung auch dann, wenn der Container noch läuft.</p>
-     *
-     * <p>Fehler werden bewusst ignoriert, da Cleanup nicht den gesamten Benchmark
-     * crashen soll (z. B. Container wurde bereits entfernt).</p>
+     * Entfernt einen Container. Fehler werden ignoriert.
      *
      * @param containerId Container-ID
      */
@@ -495,26 +408,13 @@ public class SingleRun {
     }
 
     /**
-     * Führt einen externen Prozess aus (z. B. docker CLI) und sammelt stdout/stderr.
+     * Führt ein Kommando aus und sammelt stdout/stderr.
      *
-     * <p>Diese Methode ist der zentrale Wrapper für alle Shell-Calls im Bench
-     * (docker run / logs / stats / stop / rm etc.).</p>
-     *
-     * <p>Timeout-Verhalten:</p>
-     * <ul>
-     *   <li>Wenn der Prozess nicht innerhalb von {@code timeout} beendet ist, wird er
-     *       per {@link Process#destroyForcibly()} abgebrochen.</li>
-     *   <li>Dann wird eine {@link RuntimeException} geworfen, damit der Run nicht „hängt“.</li>
-     * </ul>
-     *
-     * <p>stdout/stderr werden vollständig eingelesen und als Strings zurückgegeben.</p>
-     *
-     * @param cmd Kommando als Liste (ProcessBuilder-Style), z. B. {@code List.of("docker","ps")}
-     * @param timeout maximale Laufzeit des Prozesses
-     * @return {@link ExecResult} mit Exit-Code, stdout, stderr
+     * @param cmd Kommando als Liste
+     * @param timeout maximale Laufzeit
+     * @return ExecResult
      * @throws IOException wenn der Prozess nicht gestartet werden kann
-     * @throws InterruptedException wenn das Warten auf Prozessende unterbrochen wird
-     * @throws RuntimeException wenn ein Timeout auftritt
+     * @throws InterruptedException wenn der Aufruf unterbrochen wird
      */
     private static ExecResult exec(List<String> cmd, Duration timeout) throws IOException, InterruptedException {
         ProcessBuilder pb = new ProcessBuilder(cmd);
@@ -532,12 +432,10 @@ public class SingleRun {
     }
 
     /**
-     * Liest einen InputStream vollständig zeilenweise ein und gibt den Inhalt als String zurück.
+     * Liest einen Stream komplett ein und gibt ihn als String zurück.
      *
-     * <p>Wird genutzt, um stdout/stderr von {@link #exec(List, Duration)} zu erfassen.</p>
-     *
-     * @param in Stream (stdout oder stderr eines Prozesses)
-     * @return kompletter Stream-Inhalt als String
+     * @param in InputStream
+     * @return Inhalt als String
      * @throws IOException wenn Lesen fehlschlägt
      */
     private static String readAll(java.io.InputStream in) throws IOException {
@@ -551,22 +449,12 @@ public class SingleRun {
         }
     }
 
+
     /**
-     * Baut den finalen {@code JAVA_TOOL_OPTIONS}-String für diesen Run.
-     *
-     * <p>Ziel: Im Benchmark soll klar sein, welche Flags wirklich gesetzt werden.
-     * Deshalb wird hier der exakte String erzeugt, der später im {@link RunResult}
-     * gespeichert wird und 1:1 an {@code docker run -e JAVA_TOOL_OPTIONS=...}
-     * übergeben wird.</p>
-     *
-     * <p>Verhalten:</p>
-     * <ul>
-     *   <li>Für Native Images: {@code null} (JVM-Flags nicht anwendbar)</li>
-     *   <li>Für JVM Images: Join aller {@link BenchmarkConfig#jvmArgs()} mit Leerzeichen</li>
-     * </ul>
+     * Baut den JAVA_TOOL_OPTIONS-String für diesen Run.
      *
      * @param cfg Benchmark-Konfiguration
-     * @return Flags als ein String, oder {@code null} wenn native
+     * @return Flags als String oder null bei native
      */
     private static String computeEffectiveJavaToolOptions(BenchmarkConfig cfg) {
         if (cfg.isNative()) return null;
@@ -578,21 +466,12 @@ public class SingleRun {
     }
 
     /**
-     * Holt die letzten {@code tailLines} Zeilen aus den Docker-Logs eines Containers.
-     *
-     * <p>Wird verwendet für:</p>
-     * <ul>
-     *   <li>„Proof“/Debug: ein kurzes Start-Log-Snippet im {@link RunResult}</li>
-     *   <li>Fehlerfall: schnelle Diagnose ohne manuelles {@code docker logs}</li>
-     * </ul>
-     *
-     * <p>Wenn {@code docker logs} fehlschlägt, wird kein Exception geworfen,
-     * sondern ein erklärender String zurückgegeben (damit der Benchmark nicht deswegen stoppt).</p>
+     * Holt die letzten Zeilen aus docker logs.
      *
      * @param containerId Container-ID
-     * @param tailLines Anzahl Zeilen vom Log-Ende
-     * @return Log-Auszug oder Fehlermeldung als String
-     * @throws IOException wenn der docker-Prozess nicht gestartet werden kann
+     * @param tailLines Anzahl Zeilen
+     * @return Log-Auszug oder Fehlermeldung
+     * @throws IOException wenn der Aufruf fehlschlägt
      * @throws InterruptedException wenn der Aufruf unterbrochen wird
      */
     private String dockerLogsTail(String containerId, int tailLines) throws IOException, InterruptedException {
@@ -611,17 +490,11 @@ public class SingleRun {
     }
 
     /**
-     * Kürzt einen String auf maximal {@code maxChars} Zeichen.
+     * Kürzt einen String auf maximal maxChars.
      *
-     * <p>Wird genutzt, um Log-Snippets klein zu halten, damit:</p>
-     * <ul>
-     *   <li>RunResult/JSON nicht explodiert</li>
-     *   <li>Konsole/Export noch lesbar bleibt</li>
-     * </ul>
-     *
-     * @param s Eingabe-String (kann {@code null} sein)
+     * @param s Eingabe
      * @param maxChars maximale Länge
-     * @return ggf. gekürzter String inkl. Hinweis „truncated“
+     * @return ggf. gekürzter String
      */
     private static String trimSnippet(String s, int maxChars) {
         if (s == null) return null;
@@ -630,30 +503,16 @@ public class SingleRun {
     }
 
     /**
-     * Startet einen Hintergrund-Thread, der Docker-Stats-Snapshots sammelt.
+     * Startet einen Thread, der während der Lastphase docker stats sammelt.
      *
-     * <p>Motivation: Es sollen Stats während der Lastphase erfasst werden, ohne die
-     * HTTP-Messung durch blockierende Docker-Calls zu stören.</p>
+     * Der Thread arbeitet best-effort: Fehler werden ignoriert.
+     * Der Thread ist daemon, damit er das Beenden des Programms nicht blockiert.
      *
-     * <p>Der Thread arbeitet „best-effort“:</p>
-     * <ul>
-     *   <li>Fehler werden geschluckt (z. B. docker kurz nicht verfügbar)</li>
-     *   <li>Der Thread ist {@code daemon}, damit er den Prozess nicht am Beenden hindert</li>
-     * </ul>
-     *
-     * <p>Thread-Safety Hinweis:</p>
-     * <ul>
-     *   <li>{@code target} ist eine normale {@link ArrayList}. In diesem Projekt ist das ok,
-     *       weil der Main-Thread erst nach {@code join()} auf die Liste zugreift.</li>
-     *   <li>Wenn du in Zukunft parallel lesen/auswerten willst, nutze eine threadsichere Liste
-     *       (z. B. {@code Collections.synchronizedList}).</li>
-     * </ul>
-     *
-     * @param target Liste, in die die Samples geschrieben werden
+     * @param target Liste für die Samples
      * @param containerId Container-ID
      * @param samples Anzahl Snapshots
-     * @param sleepSeconds Pause zwischen Snapshots (Sekunden)
-     * @return der gestartete Thread (damit {@code join()} möglich ist)
+     * @param sleepSeconds Pause zwischen Snapshots in Sekunden
+     * @return gestarteter Thread
      */
     private Thread startDockerSampler(List<DockerStatSample> target, String containerId, int samples, int sleepSeconds) {
         Thread t = new Thread(() -> {
@@ -672,16 +531,7 @@ public class SingleRun {
     }
 
     /**
-     * Ergebniscontainer für {@link #exec(List, Duration)}.
-     *
-     * <p>Enthält:</p>
-     * <ul>
-     *   <li>{@code exitCode}: Exit-Code des Prozesses</li>
-     *   <li>{@code stdout}: Standardausgabe</li>
-     *   <li>{@code stderr}: Fehlerausgabe</li>
-     * </ul>
-     *
-     * <p>Dieses Record ist bewusst minimal und nur intern in {@link SingleRun} sichtbar.</p>
+     * Rückgabecontainer für exec.
      *
      * @param exitCode Exit-Code des Prozesses
      * @param stdout Standardausgabe

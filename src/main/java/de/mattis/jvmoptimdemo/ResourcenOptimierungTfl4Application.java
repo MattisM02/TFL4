@@ -5,24 +5,17 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 /**
  * Einstiegspunkt der Spring-Boot-Anwendung für das Projekt
- * „Ressourcenoptimierung TFL4“.
  *
- * <p>Diese Klasse erfüllt zwei zentrale Aufgaben:</p>
- * <ul>
- *   <li>Sie markiert das Projekt als Spring-Boot-Anwendung
- *       (über {@link SpringBootApplication}).</li>
- *   <li>Sie startet beim Programmstart den Spring Application Context.</li>
- * </ul>
+ * Diese Klasse markiert das Projekt als Spring-Boot-Anwendung
+ * und startet beim Programmstart den Spring Application Context.
  *
- * <p>Beim Start werden automatisch:</p>
- * <ul>
- *   <li>alle {@code @RestController}-Klassen (z. B. {@code DemoController}) erkannt,</li>
- *   <li>die HTTP-Endpunkte registriert,</li>
- *   <li>und der eingebettete Webserver gestartet.</li>
- * </ul>
+ * Beim Start werden unter anderem:
+ * - alle @RestController-Klassen erkannt,
+ * - die HTTP-Endpunkte registriert,
+ * - der eingebettete Webserver gestartet.
  *
- * <p>Diese Klasse enthält keinerlei Business- oder Benchmark-Logik.
- * Sie ist ausschließlich für das Bootstrapping der Anwendung zuständig.</p>
+ * Diese Klasse enthält keine Business- oder Benchmark-Logik.
+ * Sie ist ausschließlich für das Bootstrapping der Anwendung zuständig.
  */
 @SpringBootApplication
 public class ResourcenOptimierungTfl4Application {

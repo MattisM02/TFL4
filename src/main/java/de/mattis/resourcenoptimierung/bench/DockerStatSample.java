@@ -4,32 +4,27 @@ package de.mattis.resourcenoptimierung.bench;
  * Repräsentiert einen einzelnen Snapshot der Docker-Ressourcenstatistiken
  * eines Containers.
  *
- * <p>Ein {@code DockerStatSample} entspricht genau <b>einer Zeile</b> der Ausgabe von:</p>
+ * Ein DockerStatSample entspricht genau einer Zeile der Ausgabe von
+ * docker stats --no-stream mit einem festen Format.
  *
- * <pre>
- * docker stats --no-stream --format "{{.CPUPerc}}|{{.MemUsage}}|{{.MemPerc}}|{{.NetIO}}|{{.BlockIO}}|{{.PIDs}}"
- * </pre>
+ * Die Samples werden während eines Benchmark-Runs mehrfach erfasst
+ * (z.B. in IDLE-, LOAD- und POST-Phasen) und später zu Kennzahlen
+ * zusammengefasst.
  *
- * <p>Die Werte werden während eines Benchmark-Runs mehrfach erfasst
- * (z. B. in IDLE-, LOAD- und POST-Phasen) und später zu aussagekräftigen
- * Kennzahlen zusammengefasst.</p>
+ * Die Klasse ist als record umgesetzt, da sie:
+ * - unveränderlich ist,
+ * - nur Daten transportiert,
+ * - keine Logik außer einfachem Parsing enthält.
  *
- * <p>Diese Klasse ist bewusst als {@code record} umgesetzt, da sie:</p>
- * <ul>
- *   <li>immutable ist,</li>
- *   <li>nur Daten transportiert,</li>
- *   <li>keine Logik außer Parsing enthält.</li>
- * </ul>
- *
- * @param cpuPercent     CPU-Auslastung des Containers in Prozent
- * @param memUsageRaw   aktuell genutzter Speicher (z. B. "151.9MiB")
- * @param memLimitRaw   konfiguriertes Speicherlimit des Containers (z. B. "768MiB")
- * @param memPercent    Speicher-Auslastung in Prozent
- * @param netInRaw      eingehender Netzwerktraffic (z. B. "4.9kB")
- * @param netOutRaw     ausgehender Netzwerktraffic (z. B. "2.93kB")
- * @param blockInRaw    Block-I/O gelesen
- * @param blockOutRaw   Block-I/O geschrieben
- * @param pids          Anzahl der Prozesse/Threads im Container
+ * @param cpuPercent CPU-Auslastung des Containers in Prozent
+ * @param memUsageRaw aktuell genutzter Speicher (z.B. "151.9MiB")
+ * @param memLimitRaw konfiguriertes Speicherlimit (z.B. "768MiB")
+ * @param memPercent Speicherauslastung in Prozent
+ * @param netInRaw eingehender Netzwerktraffic
+ * @param netOutRaw ausgehender Netzwerktraffic
+ * @param blockInRaw gelesener Block-I/O
+ * @param blockOutRaw geschriebener Block-I/O
+ * @param pids Anzahl der Prozesse/Threads im Container
  */
 public record DockerStatSample(
         double cpuPercent,
@@ -44,25 +39,18 @@ public record DockerStatSample(
 ) {
 
     /**
-     * Parst eine einzelne Zeile der Docker-Stats-Ausgabe in ein {@link DockerStatSample}.
+     * Parst eine einzelne Zeile aus der docker-stats-Ausgabe
+     * in ein DockerStatSample.
      *
-     * <p>Erwartetes Format (Pipe-separiert):</p>
-     *
-     * <pre>
+     * Erwartetes Format (pipe-separiert):
      * CPUPerc|MemUsage|MemPerc|NetIO|BlockIO|PIDs
-     * </pre>
      *
-     * <p>Beispiel:</p>
-     * <pre>
+     * Beispiel:
      * 0.12%|151.9MiB / 768MiB|19.78%|4.9kB / 2.93kB|40.9MB / 0B|29
-     * </pre>
      *
-     * <p>Die Methode extrahiert und normalisiert die Werte, entfernt Prozentzeichen
-     * und trennt kombinierte Felder (z. B. "usage / limit").</p>
-     *
-     * @param line eine einzelne Zeile aus {@code docker stats --no-stream}
-     * @return geparstes {@link DockerStatSample}
-     * @throws IllegalArgumentException wenn das Format nicht dem erwarteten Schema entspricht
+     * @param line eine einzelne Zeile aus docker stats --no-stream
+     * @return geparstes DockerStatSample
+     * @throws IllegalArgumentException wenn das Format unerwartet ist
      */
     public static DockerStatSample parse(String line) {
 
@@ -92,16 +80,10 @@ public record DockerStatSample(
     }
 
     /**
-     * Parst einen Prozentwert aus einem String.
-     *
-     * <p>Beispiel:</p>
-     * <ul>
-     *   <li>"19.78%" → {@code 19.78}</li>
-     * </ul>
+     * Parst einen Prozentwert aus einem String wie "19.78%".
      *
      * @param s Prozentwert als String
      * @return numerischer Prozentwert
-     * @throws NumberFormatException wenn der String nicht geparst werden kann
      */
     private static double parsePercent(String s) {
         return Double.parseDouble(s.trim().replace("%", ""));

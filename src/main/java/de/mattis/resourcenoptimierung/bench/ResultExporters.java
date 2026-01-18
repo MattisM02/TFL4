@@ -8,64 +8,33 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
+
 /**
- * Exportiert Benchmark-Ergebnisse ({@link RunResult}) in maschinenlesbare Dateien.
+ * Exportiert Benchmark-Ergebnisse (RunResult) in Dateien.
  *
- * <p>Warum gibt es diese Klasse?</p>
- * <ul>
- *   <li>Die Konsole ist gut für schnelle Sichtprüfung.</li>
- *   <li>Für spätere Auswertung (Excel etc.)
- *       braucht man strukturierte Daten.</li>
- * </ul>
+ * Die Konsole ist gut für einen schnellen Überblick.
+ * Für spätere Auswertung (z.B. Excel oder Skripte) werden strukturierte Exporte benötigt.
  *
- * <p>Aktuell unterstützte Formate:</p>
- * <ul>
- *   <li><b>CSV</b>: kompakte Kennzahlen pro Run (gut für Excel)</li>
- *   <li><b>JSON</b>: enthält zusätzlich Rohdaten (z. B. alle Latenzen)</li>
- * </ul>
+ * Unterstützte Formate:
+ * - CSV: kompakte Kennzahlen pro Run
+ * - JSON: enthält zusätzlich Rohdaten wie die einzelnen Latenzen
  *
- * <p>Hinweis: Das JSON wird bewusst ohne externe Libraries gebaut, damit der Bench
- * keine zusätzlichen Dependencies benötigt. Das bedeutet aber auch:
- * Die JSON-Erzeugung ist simpel gehalten und erwartet „normale“ Strings.</p>
- *
- * <p>Diese Klasse ist eine reine Utility-Klasse (nur statische Methoden).</p>
+ * Das JSON wird bewusst ohne externe Bibliotheken erzeugt, damit der Bench keine
+ * zusätzlichen Dependencies benötigt.
  */
 public final class ResultExporters {
 
-    /**
-     * Private Konstruktor, damit keine Instanzen erzeugt werden.
-     */
     private ResultExporters() {}
 
     /**
      * Schreibt die Benchmark-Ergebnisse als CSV-Datei.
      *
-     * <p>CSV ist für schnelle Auswertung in Excel gedacht.
-     * Deshalb werden hier nicht alle Rohdaten exportiert, sondern primär
-     * aggregierte Kennzahlen pro Run.</p>
+     * Exportiert pro Run eine Zeile mit Kennzahlen und Metadaten.
+     * Perzentile werden aus sortierten Latenzen berechnet.
      *
-     * <p>Spalten (Header):</p>
-     * <ul>
-     *   <li>{@code scenario}: Benchmark-Szenario (z. B. PAYLOAD_HEAVY_JSON)</li>
-     *   <li>{@code workloadN}: Workload-Größe n</li>
-     *   <li>{@code workloadPath}: tatsächlich aufgerufener Endpoint-Pfad (z. B. "/json?n=200000")</li>
-     *   <li>{@code configName}: Name der Konfiguration (baseline, coops-off, ...)</li>
-     *   <li>{@code dockerImage}: verwendetes Image</li>
-     *   <li>{@code effectiveJavaToolOptions}: effektiv gesetzte Flags (oder leer)</li>
-     *   <li>{@code readinessCheckUsed}: welcher Readiness-Mechanismus genutzt wurde</li>
-     *   <li>{@code readinessMs}: Zeit bis „ready“</li>
-     *   <li>{@code firstSeconds}: Dauer des ersten Requests nach Readiness</li>
-     *   <li>{@code latencyCount}: Anzahl der gemessenen Requests</li>
-     *   <li>{@code latencyMean}: Mittelwert der gemessenen Latenzen</li>
-     *   <li>{@code latencyP50/P95/P99}: Perzentile der gemessenen Latenzen</li>
-     * </ul>
-     *
-     * <p>Wichtig: Für die Perzentile werden die Latenzen vorher sortiert.
-     * Die Implementierung nutzt einen einfachen Nearest-Rank-Ansatz.</p>
-     *
-     * @param results Liste von {@link RunResult}-Objekten
+     * @param results Run-Ergebnisse
      * @param path Zielpfad der CSV-Datei
-     * @throws IOException wenn Schreiben/Verzeichniszugriff fehlschlägt
+     * @throws IOException wenn Schreiben fehlschlägt
      */
     public static void writeCsv(List<RunResult> results, Path path) throws IOException {
         try (BufferedWriter w = Files.newBufferedWriter(path, StandardCharsets.UTF_8)) {
@@ -113,22 +82,12 @@ public final class ResultExporters {
     /**
      * Schreibt die Benchmark-Ergebnisse als JSON-Datei.
      *
-     * <p>JSON ist für automatisierte Auswertung gedacht (z. B. Python-Scripts),
-     * daher enthält dieser Export zusätzliche Details:</p>
-     * <ul>
-     *   <li>Scenario + Workload-Parameter</li>
-     *   <li>Config + effektiv gesetzte Flags</li>
-     *   <li>Readiness-Mechanismus</li>
-     *   <li>Readiness-/First-Timings</li>
-     *   <li><b>Rohdaten:</b> alle gemessenen Latenzen ({@code jsonLatenciesSeconds})</li>
-     * </ul>
+     * Der Export enthält zusätzlich zu Metadaten und Timings auch die Rohdaten
+     * der gemessenen Latenzen.
      *
-     * <p>Hinweis: Das JSON wird ohne externe Bibliothek gebaut.
-     * Es wird nur minimal escaped (Backslashes und Quotes).</p>
-     *
-     * @param results Liste von {@link RunResult}-Objekten
+     * @param results Run-Ergebnisse
      * @param path Zielpfad der JSON-Datei
-     * @throws IOException wenn Schreiben/Verzeichniszugriff fehlschlägt
+     * @throws IOException wenn Schreiben fehlschlägt
      */
     public static void writeJson(List<RunResult> results, Path path) throws IOException {
         StringBuilder sb = new StringBuilder();
@@ -165,11 +124,9 @@ public final class ResultExporters {
     /**
      * Berechnet ein Perzentil aus einer aufsteigend sortierten Liste.
      *
-     * <p>Implementierung: Nearest-Rank mit {@code ceil}.</p>
-     *
      * @param sorted aufsteigend sortierte Werte
-     * @param p Perzentil (0..1), z. B. 0.50, 0.95
-     * @return Perzentilwert oder {@link Double#NaN} bei leerer Liste
+     * @param p Perzentil (0..1), z.B. 0.50 oder 0.95
+     * @return Perzentilwert oder NaN bei leerer Liste
      */
     private static double percentile(List<Double> sorted, double p) {
         if (sorted == null || sorted.isEmpty()) return Double.NaN;
@@ -179,13 +136,10 @@ public final class ResultExporters {
     }
 
     /**
-     * Escaped einen String für CSV (minimal, aber ausreichend).
-     *
-     * <p>Wenn der String Kommas, Quotes oder Zeilenumbrüche enthält,
-     * wird er in Quotes gesetzt und Quotes werden verdoppelt.</p>
+     * Escaped einen String für CSV.
      *
      * @param s Roh-String
-     * @return CSV-sicherer String (ohne führende/trailing Kommas)
+     * @return CSV-sicherer String
      */
     private static String csv(String s) {
         if (s == null) return "";
@@ -197,8 +151,8 @@ public final class ResultExporters {
     /**
      * Baut ein JSON-Array aus einer Liste von Doubles.
      *
-     * @param l Liste der Latenzen
-     * @return JSON-Array-String, z. B. {@code [0.1,0.2,0.3]}
+     * @param l Liste von Werten
+     * @return JSON-Array als String
      */
     private static String array(List<Double> l) {
         if (l == null) return "[]";
@@ -214,11 +168,8 @@ public final class ResultExporters {
     /**
      * Escaped einen String für JSON (minimal).
      *
-     * <p>Es werden nur Backslash und Quotes escaped, da die exportierten Werte
-     * im Benchmark typischerweise einfache Strings sind.</p>
-     *
-     * @param s Roh-String (kann null sein)
-     * @return JSON-Stringliteral, z. B. {@code "abc"}, oder {@code null}
+     * @param s Roh-String
+     * @return JSON-Stringliteral oder null
      */
     private static String js(String s) {
         if (s == null) return "null";
@@ -228,18 +179,8 @@ public final class ResultExporters {
     /**
      * Normalisiert JVM-Flags für den Export.
      *
-     * <p>Unterscheidung:</p>
-     * <ul>
-     *   <li>{@code null} → native (für Native Images nicht anwendbar)</li>
-     *   <li>blank → baseline/keine Flags (Export als leerer String)</li>
-     *   <li>sonst → Flags unverändert</li>
-     * </ul>
-     *
-     * <p>Wichtig: Die Darstellung "(none)" oder "(native)" passiert bewusst
-     * im {@link ConsoleSummaryPrinter}. So bleibt der Export "roh/neutral".</p>
-     *
-     * @param flags effektive Flags (z. B. {@code JAVA_TOOL_OPTIONS})
-     * @return normalisierter String oder {@code null}
+     * @param flags effektive Flags (z.B. JAVA_TOOL_OPTIONS), kann null sein
+     * @return normalisierte Darstellung (null für native, leer für keine Flags)
      */
     private static String normalizeFlags(String flags) {
         if (flags == null) return null;     // native

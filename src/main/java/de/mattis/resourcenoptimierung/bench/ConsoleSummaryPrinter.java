@@ -8,48 +8,27 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Gibt eine kompakte, menschenlesbare Zusammenfassung der Benchmark-Ergebnisse
- * auf der Konsole aus.
+ * Gibt eine kompakte Zusammenfassung der Benchmark-Ergebnisse auf der Konsole aus.
  *
- * <p>Der {@code ConsoleSummaryPrinter} ist ausschließlich für die Darstellung
- * zuständig. Er:</p>
- * <ul>
- *   <li>gruppiert Ergebnisse nach {@link BenchmarkScenario},</li>
- *   <li>berechnet aggregierte Kennzahlen (min/avg/max, p50/p95/p99),</li>
- *   <li>druckt pro Szenario eine Übersicht sowie Details pro Run.</li>
- * </ul>
+ * Der ConsoleSummaryPrinter ist nur für die Darstellung zuständig.
+ * Er führt keine Benchmarks aus und verändert keine Daten.
  *
- * <p>Die Klasse verändert keine Daten und führt keine Messungen durch.
- * Sie arbeitet ausschließlich mit den bereits berechneten {@link RunResult}-Objekten.</p>
+ * Was ausgegeben wird:
+ * - Gruppierung nach BenchmarkScenario
+ * - pro Szenario: Readiness und First-Request (min/avg/max)
+ * - pro Szenario: Latenzen als p50/p95/p99 über alle Requests
+ * - pro Run: median/p95/mean, Docker-Stats (IDLE/LOAD/POST), Flags und Workload-Pfad
  *
- * <p>Alle Methoden sind statisch, da kein interner Zustand benötigt wird.</p>
+ * Die Runs werden nach p95-Latenz sortiert, damit langsame Konfigurationen sofort auffallen.
  */
 public final class ConsoleSummaryPrinter {
 
-    /**
-     * Private Konstruktor, um Instanziierung zu verhindern.
-     *
-     * <p>Diese Klasse ist als reine Utility-Klasse gedacht.</p>
-     */
     private ConsoleSummaryPrinter() {}
 
     /**
-     * Gibt die vollständige Benchmark-Zusammenfassung auf der Konsole aus.
+     * Gibt alle Ergebnisse auf der Konsole aus.
      *
-     * <p>Ablauf:</p>
-     * <ol>
-     *   <li>Prüft, ob Ergebnisse vorhanden sind.</li>
-     *   <li>Gruppiert alle {@link RunResult}-Objekte nach {@link BenchmarkScenario}.</li>
-     *   <li>
-     *     Gibt für jedes Szenario aus:
-     *     <ul>
-     *       <li>eine aggregierte Zusammenfassung (Readiness, First Request, Latenzen)</li>
-     *       <li>eine Detailansicht pro Konfiguration</li>
-     *     </ul>
-     *   </li>
-     * </ol>
-     *
-     * @param results Liste aller Benchmark-Ergebnisse (ein Eintrag pro Run)
+     * @param results Liste der RunResult-Einträge
      */
     public static void print(List<RunResult> results) {
         System.out.println("=== Benchmark Summary ===");
@@ -79,19 +58,14 @@ public final class ConsoleSummaryPrinter {
     }
 
     /**
-     * Gibt eine aggregierte Zusammenfassung für ein einzelnes Benchmark-Szenario aus.
+     * Gibt eine Zusammenfassung für ein Szenario aus.
      *
-     * <p>Berechnete Kennzahlen:</p>
-     * <ul>
-     *   <li>Readiness-Zeit (min / avg / max)</li>
-     *   <li>First-Request-Zeit (min / avg / max)</li>
-     *   <li>Latenz-Perzentile über alle Runs (p50 / p95 / p99)</li>
-     * </ul>
+     * Kennzahlen:
+     * - Readiness (ms): min/avg/max
+     * - First request (s): min/avg/max
+     * - Latenzen (s): p50/p95/p99 über alle Requests aller Runs
      *
-     * <p>Die Latenzstatistik wird über <b>alle Requests aller Runs</b>
-     * dieses Szenarios gebildet, um einen stabileren Gesamteindruck zu geben.</p>
-     *
-     * @param group Liste aller {@link RunResult}-Objekte für ein Szenario
+     * @param group Runs eines Szenarios
      */
     private static void printScenarioSummary(List<RunResult> group) {
         // Readiness
@@ -134,23 +108,15 @@ public final class ConsoleSummaryPrinter {
     }
 
     /**
-     * Gibt pro {@link RunResult} (also pro Konfiguration innerhalb eines Szenarios) eine Detailzeile aus.
+     * Gibt pro Run eine Detailzeile aus.
      *
-     * <p>Was hier ausgegeben wird:</p>
-     * <ul>
-     *   <li>Run-Identität: Config-Name und ob JVM oder Native</li>
-     *   <li>Zeitwerte: Readiness, First Request, median/p95/mean der Request-Latenzen</li>
-     *   <li>Anzahl gemessener Requests (req)</li>
-     *   <li>Welcher Readiness-Check benutzt wurde</li>
-     *   <li>Docker-Stats in 3 Phasen (IDLE / LOAD / POST), v. a. Memory/CPU unter Last</li>
-     *   <li>Aktive JVM-Flags (effective JAVA_TOOL_OPTIONS)</li>
-     *   <li>Workload-URL (z. B. /json?n=... oder /alloc?n=...)</li>
-     * </ul>
+     * Pro Run:
+     * - readiness, first request
+     * - median/p95/mean der Latenzen
+     * - Docker-Stats für IDLE/LOAD/POST (falls vorhanden)
+     * - Flags und Workload-Pfad
      *
-     * <p>Die Runs werden absichtlich nach p95-Latenz sortiert (langsamste zuerst),
-     * damit problematische Konfigurationen sofort auffallen.</p>
-     *
-     * @param group alle Runs eines einzelnen Szenarios
+     * @param group Runs eines Szenarios
      */
     private static void printPerRun(List<RunResult> group) {
         System.out.println();
@@ -213,12 +179,11 @@ public final class ConsoleSummaryPrinter {
     }
 
     /**
-     * Hilfsmethode: p95 (95. Perzentil) für die Request-Latenzen eines Runs.
+     * Liefert die p95-Latenz eines Runs.
+     * Wird für die Sortierung der Ausgabe genutzt.
      *
-     * <p>Wird primär für Sortierung ("langsamste zuerst") genutzt.</p>
-     *
-     * @param r ein einzelnes Run-Ergebnis
-     * @return p95-Latenz in Sekunden oder {@link Double#NaN}, wenn keine Latenzen vorhanden sind
+     * @param r Run-Ergebnis
+     * @return p95 in Sekunden oder NaN, wenn keine Daten vorhanden sind
      */
     private static double p95(RunResult r) {
         List<Double> l = r.latenciesSeconds();
@@ -229,18 +194,15 @@ public final class ConsoleSummaryPrinter {
     }
 
     /**
-     * Berechnet ein Perzentil aus einer aufsteigend sortierten Liste von Messwerten.
+     * Berechnet ein Perzentil aus einer sortierten Liste.
      *
-     * <p>Wichtig:</p>
-     * <ul>
-     *   <li>Die Liste muss bereits sortiert sein (aufsteigend).</li>
-     *   <li>Diese Implementierung nutzt einen einfachen Index-Ansatz (Nearest-Rank, "ceil").</li>
-     *   <li>Für Benchmark-Zwecke reicht das aus und ist reproduzierbar.</li>
-     * </ul>
+     * Hinweis:
+     * - Die Liste muss aufsteigend sortiert sein.
+     * - Verwendet einen einfachen Nearest-Rank-Ansatz.
      *
-     * @param sorted aufsteigend sortierte Messwerte
-     * @param p      Perzentil als Wert zwischen 0 und 1 (z. B. 0.50, 0.95, 0.99)
-     * @return Wert an der Perzentil-Position oder {@link Double#NaN}, wenn keine Daten vorhanden sind
+     * @param sorted aufsteigend sortierte Werte
+     * @param p Perzentil zwischen 0 und 1 (z.B. 0.50, 0.95)
+     * @return Perzentilwert oder NaN, wenn keine Daten vorhanden sind
      */
     private static double percentile(List<Double> sorted, double p) {
         if (sorted == null || sorted.isEmpty()) return Double.NaN;
@@ -250,13 +212,10 @@ public final class ConsoleSummaryPrinter {
     }
 
     /**
-     * Normalisiert JVM-Flags für die Konsole.
+     * Formatiert die Flags für die Konsolenausgabe.
      *
-     * <p>Hintergrund: Für JVM-Runs speichern wir effektiv gesetzte Flags
-     * (meist als {@code JAVA_TOOL_OPTIONS}). Für Native Images ist das nicht anwendbar.</p>
-     *
-     * @param flags effektive Flags / JAVA_TOOL_OPTIONS (kann null oder leer sein)
-     * @return lesbarer String für Konsole ("(native)" / "(none)" / Flags)
+     * @param flags effektive JAVA_TOOL_OPTIONS (null bei Native)
+     * @return "(native)", "(none)" oder der Flag-String
      */
     private static String normalizeFlagsForPrint(String flags) {
         if (flags == null) return "(native)";
@@ -265,15 +224,14 @@ public final class ConsoleSummaryPrinter {
     }
 
     /**
-     * Verdichtete Kennzahlen für Docker-Stats einer Phase (IDLE/LOAD/POST).
+     * Verdichtete Kennzahlen für Docker-Stats einer Phase (IDLE, LOAD, POST).
      *
-     * <p>Speichert absichtlich nur wenige, aussagekräftige Werte, damit die
-     * Konsolenausgabe kompakt bleibt.</p>
+     * Enthält nur die wichtigsten Werte, damit die Konsolenausgabe kompakt bleibt.
      *
-     * @param cpuAvg        durchschnittliche CPU-Auslastung in Prozent
-     * @param memPercAvg    durchschnittliche Speicherauslastung in Prozent
-     * @param memPercMax    maximale Speicherauslastung in Prozent
-     * @param memUsageAtMax Speicher-String ("usage / limit") zum Zeitpunkt des Maximums
+     * @param cpuAvg durchschnittliche CPU-Auslastung in Prozent
+     * @param memPercAvg durchschnittliche Speicherauslastung in Prozent
+     * @param memPercMax maximale Speicherauslastung in Prozent
+     * @param memUsageAtMax Speicherbelegung als "usage / limit" zum Zeitpunkt des Maximums
      */
     private record DockerPhaseStats(
             double cpuAvg,
@@ -283,21 +241,13 @@ public final class ConsoleSummaryPrinter {
     ) {}
 
     /**
-     * Berechnet aus mehreren Docker-Stat-Samples einer Phase kompakte Kennzahlen.
+     * Verdichtet mehrere DockerStatSample zu einer kompakten Zusammenfassung.
      *
-     * <p>Die Samples kommen aus {@code docker stats --no-stream} und wurden in {@link SingleRun}
-     * in festen Intervallen gesammelt.</p>
+     * Es werden Mittelwerte für CPU und Memory sowie das Memory-Maximum berechnet.
+     * Zusätzlich wird der Rohwert "usage / limit" für das Memory-Maximum gespeichert.
      *
-     * <p>Berechnungen:</p>
-     * <ul>
-     *   <li>CPU avg: Mittelwert von {@link DockerStatSample#cpuPercent()}</li>
-     *   <li>Mem avg: Mittelwert von {@link DockerStatSample#memPercent()}</li>
-     *   <li>Mem max: Maximum von {@link DockerStatSample#memPercent()}</li>
-     *   <li>memUsageAtMax: Roh-Strings ("usage / limit") beim Maximum, hilfreich fürs Debugging</li>
-     * </ul>
-     *
-     * @param samples Liste von Docker-Stat-Samples einer Phase
-     * @return verdichtete Stats oder {@code null}, wenn keine Samples vorhanden sind
+     * @param samples Docker-Stat-Samples einer Phase
+     * @return Zusammenfassung oder null, wenn keine Samples vorhanden sind
      */
     private static DockerPhaseStats phaseStats(List<DockerStatSample> samples) {
         if (samples == null || samples.isEmpty()) return null;

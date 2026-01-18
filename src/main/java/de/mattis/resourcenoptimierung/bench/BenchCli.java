@@ -9,57 +9,36 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 /**
- * Command-Line Entry-Point für das Benchmarking.
+ * CLI-Einstiegspunkt für das Benchmarking.
  *
- * <p>Diese Klasse ist die "Hauptsteuerung" für einen Benchmark-Durchlauf:</p>
- * <ol>
- *   <li>Szenario auswählen (payload-heavy / alloc-heavy) über CLI-Argumente oder interaktiven Dialog</li>
- *   <li>Workload-Größe {@code n} bestimmen (CLI oder Default pro Szenario)</li>
- *   <li>Benchmark-Plan laden (welche JVM-/Docker-Konfigurationen getestet werden)</li>
- *   <li>Alle Runs ausführen lassen (über {@link BenchmarkRunner})</li>
- *   <li>Ergebnisse ausgeben (Konsole) und exportieren (JSON + CSV)</li>
- * </ol>
+ * Ablauf:
+ * - Szenario wählen (json oder alloc) über CLI oder interaktiv
+ * - Workload-Größe n bestimmen
+ * - BenchmarkPlan laden
+ * - Alle Konfigurationen ausführen
+ * - Ergebnisse auf der Konsole ausgeben und als CSV/JSON exportieren
  *
- * <p><b>CLI-Argumente</b></p>
- * <ul>
- *   <li><b>--scenario</b> (optional): Workload-Auswahl.
- *       Erlaubte Werte: {@code json|payload|alloc}</li>
- *   <li><b>--n</b> (optional): Workload-Größe.
- *       Bedeutung: Parameter {@code n} des Endpoints (z. B. {@code /json?n=200000}).</li>
- * </ul>
+ * CLI-Argumente:
+ * - --scenario: json oder alloc (optional)
+ * - --n: Workload-Größe (optional)
  *
- * <p>Wenn {@code --scenario} nicht gesetzt ist, startet ein kleiner Konsolen-Dialog, der zwischen
- * {@code /json} und {@code /alloc} wählen lässt. Das macht lokale Tests komfortabel. Für automatisierte
- * Runs/CI setzt man {@code --scenario}, um den Dialog zu vermeiden.</p>
+ * Wenn --scenario fehlt, wird ein einfacher Konsolen-Dialog geöffnet.
+ * Für automatisierte Runs sollte --scenario gesetzt werden.
  *
- * <p><b>Output</b></p>
- * <ul>
- *   <li>Console summary über {@link ConsoleSummaryPrinter}</li>
- *   <li>Exports in das Verzeichnis {@code bench-results/}:
- *       <ul>
- *         <li>JSON: vollständige Ergebnisse inkl. Roh-Latenzen</li>
- *         <li>CSV: kompakte Kennzahlen pro Run</li>
- *       </ul>
- *   </li>
- * </ul>
+ * Output:
+ * - Konsolen-Zusammenfassung
+ * - Dateien unter bench-results/ (CSV und JSON)
  */
 public class BenchCli {
 
     /**
-     * Startet einen Benchmark-Durchlauf.
+     * Startet den Benchmark-Durchlauf.
      *
-     * <p>Ablauf:</p>
-     * <ol>
-     *   <li>Szenario ermitteln: {@link #resolveScenario(String[])}</li>
-     *   <li>Workload-Größe ermitteln: {@link #resolveWorkloadN(String[], BenchmarkScenario)}</li>
-     *   <li>Default-Plan laden: {@link BenchmarkPlan#defaultPlan()}</li>
-     *   <li>Runs ausführen: {@link BenchmarkRunner#runAll()}</li>
-     *   <li>Konsole drucken: {@link ConsoleSummaryPrinter#print(List)}</li>
-     *   <li>Export schreiben: {@link ResultExporters#writeJson(List, Path)} und {@link ResultExporters#writeCsv(List, Path)}</li>
-     * </ol>
+     * Parameter:
+     * - args: Kommandozeilenargumente (--scenario, --n)
      *
-     * @param args Kommandozeilenargumente (siehe Klassendoku)
-     * @throws Exception Wenn ein Run fehlschlägt oder Export/IO fehlschlägt
+     * @param args CLI-Argumente
+     * @throws Exception wenn Docker-Aufrufe, Requests oder Exporte fehlschlagen
      */
     public static void main(String[] args) throws Exception {
         BenchmarkScenario scenario = resolveScenario(args);
@@ -81,16 +60,11 @@ public class BenchCli {
     }
 
     /**
-     * Ermittelt das Benchmark-Szenario.
-     *
-     * <p>Priorität:</p>
-     * <ol>
-     *   <li>Wenn {@code --scenario} gesetzt ist: parse und zurückgeben.</li>
-     *   <li>Sonst: interaktiv per Dialog abfragen (lokaler Komfort).</li>
-     * </ol>
+     * Bestimmt das Benchmark-Szenario.
+     * Wenn --scenario gesetzt ist, wird es daraus gelesen, sonst per Dialog abgefragt.
      *
      * @param args CLI-Argumente
-     * @return gewähltes Szenario
+     * @return Szenario
      * @throws Exception wenn die interaktive Eingabe fehlschlägt
      */
     private static BenchmarkScenario resolveScenario(String[] args) throws Exception {
@@ -103,13 +77,13 @@ public class BenchCli {
         return promptScenario();
     }
 
+
     /**
-     * Öffnet einen einfachen Konsolen-Dialog, um das Szenario auszuwählen.
+     * Interaktiver Dialog zur Szenario-Auswahl.
+     * Default ist /json, wenn Enter gedrückt wird oder die Eingabe ungültig ist.
      *
-     * <p>Default: Wenn der Nutzer Enter drückt oder ungültig eingibt, wird {@code /json} gewählt.</p>
-     *
-     * @return das ausgewählte {@link BenchmarkScenario}
-     * @throws Exception bei Problemen beim Lesen von stdin
+     * @return Szenario
+     * @throws Exception wenn stdin nicht gelesen werden kann
      */
     private static BenchmarkScenario promptScenario() throws Exception {
         BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
@@ -133,19 +107,12 @@ public class BenchCli {
     }
 
     /**
-     * Ermittelt die Workload-Größe {@code n}.
-     *
-     * <p>Wenn {@code --n} gesetzt ist, wird dieser Wert verwendet. Sonst wird ein Default pro Szenario gesetzt:</p>
-     * <ul>
-     *   <li>{@code PAYLOAD_HEAVY_JSON}: 200000</li>
-     *   <li>{@code ALLOC_HEAVY_OK}: 10000000</li>
-     * </ul>
-     *
-     * <p>Hinweis: Dieser Wert wird später in der Benchmark-URL genutzt, z. B. {@code /json?n=200000}.</p>
+     * Bestimmt den Workload-Parameter n.
+     * Wenn --n gesetzt ist, wird der Wert verwendet, sonst ein Default pro Szenario.
      *
      * @param args CLI-Argumente
-     * @param scenario zuvor ausgewähltes Szenario (entscheidet über den Default)
-     * @return Workload-Parameter {@code n}
+     * @param scenario Szenario für die Default-Wahl
+     * @return Workload-Größe n
      */
     private static int resolveWorkloadN(String[] args, BenchmarkScenario scenario) {
         String raw = findArgValue(args, "--n");
@@ -156,17 +123,10 @@ public class BenchCli {
     }
 
     /**
-     * Parst das Szenario aus einem String.
+     * Parst das Szenario aus dem CLI-Wert.
      *
-     * <p>Erlaubt mehrere Synonyme, damit CLI-Nutzung bequem ist:</p>
-     * <ul>
-     *   <li>{@code json}, {@code payload}, {@code payload-heavy}, ...</li>
-     *   <li>{@code alloc}, {@code alloc-heavy}, ...</li>
-     * </ul>
-     *
-     * @param raw roher CLI-Wert (z. B. "json" oder "alloc")
-     * @return entsprechendes {@link BenchmarkScenario}
-     * @throws IllegalArgumentException wenn der Wert unbekannt ist
+     * @param raw CLI-Wert (z.B. "json" oder "alloc")
+     * @return Szenario
      */
     private static BenchmarkScenario parseScenario(String raw) {
         return switch (raw.toLowerCase()) {
@@ -177,17 +137,14 @@ public class BenchCli {
     }
 
     /**
-     * Sucht den Wert eines CLI-Arguments.
-     *
-     * <p>Unterstützte Formen:</p>
-     * <ul>
-     *   <li>{@code --key value}</li>
-     *   <li>{@code --key=value}</li>
-     * </ul>
+     * Liest den Wert eines CLI-Arguments.
+     * Unterstützt beide Formen:
+     * - --key value
+     * - --key=value
      *
      * @param args CLI-Argumente
-     * @param key  Argument-Name, z. B. {@code "--scenario"} oder {@code "--n"}
-     * @return Wert als String, oder {@code null} wenn nicht vorhanden
+     * @param key Argumentname (z.B. "--scenario" oder "--n")
+     * @return Wert oder null, wenn nicht vorhanden
      */
     private static String findArgValue(String[] args, String key) {
         for (int i = 0; i < args.length; i++) {

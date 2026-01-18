@@ -1,19 +1,18 @@
 package de.mattis.resourcenoptimierung.bench;
 
 /**
- * Beschreibt das Benchmark-Szenario, also <b>welche Art von Workload</b>
- * während eines Runs ausgeführt wird.
+ * Beschreibt das Benchmark-Szenario.
  *
- * <p>Ein {@code BenchmarkScenario} bestimmt:</p>
- * <ul>
- *   <li>welcher HTTP-Endpunkt aufgerufen wird,</li>
- *   <li>welche Art von Last erzeugt wird (Payload vs. Allocation),</li>
- *   <li>wie die gemessenen Zeiten interpretiert werden müssen.</li>
- * </ul>
+ * Ein BenchmarkScenario legt fest,
+ * welche Art von Workload während eines Runs ausgeführt wird.
  *
- * <p>Das Szenario wird typischerweise beim Start des Benchmarks
- * (z. B. über {@code BenchCli}) ausgewählt und gilt dann für alle
- * Konfigurationen innerhalb eines Durchlaufs.</p>
+ * Das Szenario bestimmt:
+ * - welcher HTTP-Endpunkt aufgerufen wird,
+ * - welche Art von Last erzeugt wird,
+ * - wie die Messergebnisse zu interpretieren sind.
+ *
+ * Das Szenario wird beim Start des Benchmarks ausgewählt
+ * und gilt für alle Konfigurationen eines Durchlaufs.
  */
 public enum BenchmarkScenario {
     PAYLOAD_HEAVY_JSON,

@@ -7,33 +7,24 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 
 /**
- * Ermittelt robust, wann ein gestarteter Container/Service „bereit“ ist.
+ * Ermittelt, wann ein gestarteter Service als bereit gilt.
  *
- * <p>Hintergrund: Je nach Spring-Konfiguration sind Readiness-Endpunkte nicht immer verfügbar
- * (z. B. fehlende Actuator-Exposure, Security, andere Spring-Version). Damit ein Benchmark
- * nicht unnötig fehlschlägt, gibt es eine Fallback-Strategie.</p>
+ * Der Prober pollt mehrere URLs in einer festen Reihenfolge, damit der Benchmark
+ * auch dann funktioniert, wenn Actuator-Endpunkte fehlen oder gesichert sind.
  *
- * <p>Diese Klasse pollt verschiedene URLs in einer festen Reihenfolge und gibt zurück:</p>
- * <ul>
- *   <li>welcher Check erfolgreich war ({@link ReadinessCheckUsed})</li>
- *   <li>wie lange es insgesamt gedauert hat (readinessMs)</li>
- * </ul>
- *
- * <p>Wichtig: Readiness ist hier rein pragmatisch definiert als „ein HTTP-GET liefert 200 OK“.
- * Je nach Endpoint ist das semantisch genauer (Actuator Readiness) oder nur ein Workaround (/json).</p>
+ * Readiness bedeutet hier pragmatisch: Ein HTTP-GET liefert Status 200.
+ * Je nach Endpoint ist das semantisch genauer (Actuator Readiness) oder nur
+ * ein Fallback (Workload-Endpoint).
  */
 public final class ReadinessProber {
 
     /**
-     * HTTP-Client für alle Polling-Requests.
-     *
-     * <p>Es werden kurze Timeouts genutzt, da während des Starts häufig Verbindungsfehler auftreten
-     * (Port noch nicht offen, Server noch nicht gebunden etc.).</p>
+     * HTTP-Client für Polling-Requests mit kurzen Timeouts.
      */
     private final HttpClient http;
 
     /**
-     * Erstellt einen {@link ReadinessProber} mit einem {@link HttpClient} und kurzer Connect-Timeout-Policy.
+     * Erstellt einen ReadinessProber mit kurzem Connect-Timeout.
      */
     public ReadinessProber() {
         this.http = HttpClient.newBuilder()
@@ -44,28 +35,24 @@ public final class ReadinessProber {
     /**
      * Ergebnis der Readiness-Ermittlung.
      *
-     * @param used        welcher Readiness-Mechanismus am Ende verwendet wurde
-     * @param readinessMs Zeit in Millisekunden vom Start der Messung bis zum „ready“-Zeitpunkt
+     * @param used welcher Check erfolgreich war
+     * @param readinessMs Dauer bis "ready" in Millisekunden
      */
     public record ReadinessResult(ReadinessCheckUsed used, long readinessMs) {}
 
     /**
-     * Wartet bis der Service unter {@code baseUrl} bereit ist oder das Timeout abläuft.
+     * Wartet bis der Service unter baseUrl bereit ist oder das Timeout abläuft.
      *
-     * <p>Reihenfolge der Checks (Fallback-Kette):</p>
-     * <ol>
-     *   <li>{@code /actuator/health/readiness} (bevorzugt, semantisch korrekt)</li>
-     *   <li>{@code /actuator/health} (Fallback, weniger präzise)</li>
-     *   <li>{@code fallbackPath} (letzter Fallback: „bereit“, sobald der Workload-Endpoint 200 liefert)</li>
-     * </ol>
+     * Checks in Reihenfolge:
+     * - /actuator/health/readiness
+     * - /actuator/health
+     * - fallbackPath (z.B. /json oder /alloc)
      *
-     * <p>Für jeden Schritt wird nur die verbleibende Zeit des Gesamt-Timeouts genutzt.</p>
-     *
-     * @param baseUrl      Basis-URL des Services, z. B. {@code http://localhost:8080}
-     * @param timeout      Gesamtzeit, nach der abgebrochen wird
-     * @param fallbackPath Pfad (oder vollständige URL) für den letzten Fallback, z. B. {@code /alloc} oder {@code /json}
-     * @return {@link ReadinessResult} mit verwendetem Check und Dauer in ms
-     * @throws Exception wenn das Timeout abläuft oder unerwartete Fehler auftreten
+     * @param baseUrl Basis-URL des Services (z.B. "http://localhost:8080")
+     * @param timeout Gesamt-Timeout
+     * @param fallbackPath Pfad oder vollständige URL für den letzten Fallback
+     * @return ReadinessResult mit verwendetem Check und Dauer
+     * @throws Exception wenn das Timeout abläuft oder ein unerwarteter Fehler auftritt
      */
     public ReadinessResult waitUntilReady(String baseUrl, Duration timeout, String fallbackPath) throws Exception {
         long start = System.nanoTime();
@@ -94,9 +81,15 @@ public final class ReadinessProber {
     }
 
     /**
-     * Akzeptiert fallbackPath als:
-     * - "/alloc" oder "/json" → wird an baseUrl gehängt
-     * - "http:// ..." → wird direkt genutzt
+     * Baut aus baseUrl und fallbackPath eine vollständige URL.
+     *
+     * fallbackPath darf sein:
+     * - "/alloc" oder "/json" (wird an baseUrl gehängt)
+     * - "http://..." oder "https://..." (wird direkt genutzt)
+     *
+     * @param baseUrl Basis-URL des Services
+     * @param fallbackPath Pfad oder vollständige URL
+     * @return vollständige URL
      */
     private static String toUrl(String baseUrl, String fallbackPath) {
         if (fallbackPath == null || fallbackPath.isBlank()) {
@@ -114,20 +107,17 @@ public final class ReadinessProber {
     }
 
     /**
-     * Pollt eine URL, bis ein HTTP-Status {@code 200} zurückkommt oder das Timeout erreicht ist.
+     * Pollt eine URL, bis Status 200 zurückkommt oder das Timeout erreicht ist.
      *
-     * <p>Abbruch-Regeln:</p>
-     * <ul>
-     *   <li>{@code 200} → ready</li>
-     *   <li>{@code 401/403/404} → Endpoint ist nicht nutzbar (gesichert oder nicht vorhanden),
-     *       daher sofort abbrechen und {@code false} zurückgeben (damit Fallback weiterlaufen kann).</li>
-     *   <li>Alles andere (inkl. Netzwerkfehler) → weiter pollen bis Timeout</li>
-     * </ul>
+     * Abbruchregeln:
+     * - 200: ready
+     * - 401/403/404: Endpoint nicht nutzbar, sofort abbrechen (damit Fallback weitergehen kann)
+     * - sonst: weiter pollen bis Timeout
      *
-     * @param url     vollständige URL, z. B. {@code http://localhost:8080/actuator/health}
-     * @param timeout Zeitfenster, in dem gepollt wird
-     * @return {@code true} wenn 200 erreicht wurde, sonst {@code false}
-     * @throws Exception wenn {@link Thread#sleep(long)} unterbrochen wird
+     * @param url vollständige URL
+     * @param timeout Zeitfenster für das Polling
+     * @return true, wenn 200 erreicht wurde, sonst false
+     * @throws Exception wenn der Sleep unterbrochen wird
      */
     private boolean pollUntil200(String url, Duration timeout) throws Exception {
         long deadlineNanos = System.nanoTime() + timeout.toNanos();
@@ -148,15 +138,12 @@ public final class ReadinessProber {
 
     /**
      * Führt einen HTTP-GET aus und gibt nur den Statuscode zurück.
+     * Der Response-Body wird verworfen.
      *
-     * <p>Der Body wird bewusst verworfen ({@link HttpResponse.BodyHandlers#discarding()}),
-     * da es hier nur um Erreichbarkeit/Status geht und nicht um Payload.</p>
-     *
-     * <p>Bei Netzwerkfehlern (Verbindung abgelehnt, Timeout, etc.) wird {@code -1} zurückgegeben,
-     * damit {@link #pollUntil200(String, Duration)} weiter pollen kann.</p>
+     * Bei Netzwerkfehlern wird -1 zurückgegeben, damit weiter gepollt werden kann.
      *
      * @param url vollständige URL
-     * @return HTTP-Statuscode oder {@code -1} bei Netzwerk-/Timeout-Fehlern
+     * @return HTTP-Statuscode oder -1 bei Fehlern
      */
     private int tryGetStatus(String url) {
         try {
@@ -174,9 +161,9 @@ public final class ReadinessProber {
     }
 
     /**
-     * Berechnet die vergangene Zeit seit {@code startNanos} in Millisekunden.
+     * Berechnet die vergangene Zeit seit startNanos in Millisekunden.
      *
-     * @param startNanos Startzeitpunkt in {@code System.nanoTime()}-Ticks
+     * @param startNanos Startzeitpunkt (System.nanoTime)
      * @return vergangene Millisekunden
      */
     private static long elapsedMs(long startNanos) {
@@ -184,14 +171,11 @@ public final class ReadinessProber {
     }
 
     /**
-     * Berechnet, wie viel Zeit vom Gesamt-Timeout noch übrig ist.
+     * Berechnet die verbleibende Zeit des Gesamt-Timeouts.
      *
-     * <p>Beispiel: Wenn das Gesamt-Timeout 60s ist und bereits 10s vergangen sind,
-     * liefert diese Methode 50s.</p>
-     *
-     * @param total     Gesamt-Timeout
-     * @param startNanos Startzeitpunkt (nanoTime)
-     * @return verbleibende Dauer (kann negativ sein, wenn das Timeout überschritten ist)
+     * @param total Gesamt-Timeout
+     * @param startNanos Startzeitpunkt (System.nanoTime)
+     * @return verbleibende Zeit (kann negativ sein)
      */
     private static Duration remaining(Duration total, long startNanos) {
         long usedNanos = System.nanoTime() - startNanos;
