@@ -41,7 +41,6 @@ public class DemoController {
      * @param n Anzahl der DTOs
      * @return Liste von UserDto, die als JSON serialisiert wird
      */
-    @GetMap
     @GetMapping("/json")
     public List<UserDto> json(
             @RequestParam(name = "n", defaultValue = "200000") int n
