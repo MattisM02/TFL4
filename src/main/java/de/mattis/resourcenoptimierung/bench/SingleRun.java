@@ -189,7 +189,6 @@ public class SingleRun {
             long readinessMs = rr.readinessMs();
             ReadinessCheckUsed readinessCheckUsed = rr.used();
 
-
             // 5) Idle samples direkt nach readiness
             //    Basiswerte, bevor Last erzeugt wird (Vergleich zu LOAD/POST).
             List<DockerStatSample> dockerIdleSamples = dockerStatsSamples(containerId, 3, 1);
