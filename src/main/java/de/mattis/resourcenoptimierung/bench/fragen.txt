@@ -1,8 +1,0 @@
-Wie funktioniert die Fallback-Strategie, was ist das überhaupt?
-Wie funktioniert das http request?
-Warum messen wir das mit ready usw.? Wie funktioniert das?
-Readiness-Mechanismus?
-Latenzen? Warum werden die sortiert? -> ResultExporters
-was sind stdout, stderr? (SingleRun.exec)
-was ist gemeint mit "best effort" ? (SingleRun.startDockerSampler)
-"Der Thread ist {@code daemon}, damit er den Prozess nicht am Beenden hindert" ? (SingleRun.startDockerSampler)
