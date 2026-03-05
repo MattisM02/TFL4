@@ -132,14 +132,13 @@ public class SingleRun {
      *
      * Fehlerverhalten:
      * - Bei Fehlern werden Logs best-effort ausgegeben.
-     * - Bei Erfolg wird der Container gestoppt und entfernt.
-     * - Bei Fehler wird der Container fuer manuelle Analyse behalten.
+     * - Container wird IMMER gestoppt und entfernt (auch bei Fehler),
+     *   damit keine Zombie-Container Port 8080 blockieren.
      *
      * @return Run-Ergebnis
      * @throws Exception wenn Docker/HTTP/Messung fehlschlaegt oder Readiness nicht erreicht wird
      */
     public RunResult execute() throws Exception {
-        boolean success = false;
         try {
             // 1) Flags berechnen (und im Result speichern)
             //    Fuer JVM-Runs wird aus cfg.jvmArgs() ein String gebaut, der als JAVA_TOOL_OPTIONS gesetzt wird.
@@ -253,29 +252,59 @@ public class SingleRun {
                     repetition
             );
 
-            success = true;
             return result;
 
         } catch (RuntimeException e) {
             if (containerId != null && !containerId.isBlank()) {
-                // Bei Fehlern: Log-Auszug ausgeben, um die Ursache schneller zu sehen.
+                // Bei Fehlern: Log-Auszug ausgeben, BEVOR der Container entfernt wird.
                 try {
                     String logs = dockerLogsTail(containerId, 200);
-                    System.err.println("=== docker logs (tail 200) ===");
+                    System.err.println("=== docker logs (tail 200) for " + containerId + " ===");
                     System.err.println(logs);
                 } catch (Exception ignored) {}
             }
             throw e;
         } finally {
-            // Cleanup-Strategie:
-            // - Erfolg: Container stoppen + entfernen, damit keine Ressourcen leaken.
-            // - Fehler: Container behalten, damit man manuell inspecten kann (docker logs/exec).
-            if (success && containerId != null && !containerId.isBlank()) {
+            // Cleanup-Strategie: Container IMMER stoppen + entfernen.
+            // Zombie-Container blockieren sonst Port 8080 fuer nachfolgende Runs.
+            // Log-Auszug wird im catch-Block VOR dem Cleanup ausgegeben.
+            if (containerId != null && !containerId.isBlank()) {
+                System.err.println("Cleaning up container: " + containerId);
                 dockerStop(containerId);
                 dockerRm(containerId);
-            } else if (!success && containerId != null && !containerId.isBlank()) {
-                System.err.println("Container kept for inspection: " + containerId);
             }
+        }
+    }
+
+    /**
+     * Entfernt alle Container, die den angegebenen Host-Port belegen.
+     *
+     * Wird VOR docker run aufgerufen, um Zombie-Container aus vorherigen
+     * fehlgeschlagenen Runs zu bereinigen. Ohne diesen Schritt blockieren
+     * "Created"-State-Container den Port dauerhaft.
+     *
+     * @param port Host-Port (z.B. 8080)
+     */
+    private void killContainerOnPort(int port) {
+        try {
+            // docker ps -a: findet ALLE Container (laufend, Created, Exited),
+            // die mit diesem Port-Mapping erstellt wurden.
+            // -a ist wichtig, weil "Created"-State-Container den Port blockieren,
+            // aber von "docker ps" (ohne -a) nicht angezeigt werden.
+            ExecResult all = exec(List.of(
+                    "docker", "ps", "-aq", "--filter", "publish=" + port
+            ), Duration.ofSeconds(10));
+
+            if (all.exitCode != 0 || all.stdout.trim().isEmpty()) return;
+
+            for (String id : all.stdout.trim().split("\\s+")) {
+                if (!id.isBlank()) {
+                    System.err.println("WARNING: Removing stale container " + id + " on port " + port);
+                    exec(List.of("docker", "rm", "-f", id), Duration.ofSeconds(10));
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("WARNING: Pre-run port cleanup failed: " + e.getMessage());
         }
     }
 
@@ -284,6 +313,9 @@ public class SingleRun {
      *
      * Setzt CPU- und Memory-Limits fuer bessere Vergleichbarkeit.
      * Fuer JVM-Images wird JAVA_TOOL_OPTIONS gesetzt, fuer native nicht.
+     *
+     * Vor dem Start wird geprueft, ob bereits ein Container den Ziel-Port
+     * belegt, und dieser ggf. entfernt (Zombie-Schutz).
      *
      * @param cfg Benchmark-Konfiguration
      * @param port Host-Port fuer das Port-Mapping
@@ -294,6 +326,9 @@ public class SingleRun {
      */
     private String dockerRun(BenchmarkConfig cfg, int port, String effectiveJavaToolOptions)
             throws IOException, InterruptedException {
+
+        // Zombie-Schutz: bestehende Container auf diesem Port entfernen
+        killContainerOnPort(port);
 
         List<String> cmd = new ArrayList<>(List.of(
                 "docker", "run",
@@ -325,9 +360,20 @@ public class SingleRun {
 
         ExecResult res = exec(cmd, Duration.ofSeconds(30));
         if (res.exitCode != 0) {
+            // Docker erzeugt manchmal einen Container im "Created"-State, auch wenn
+            // docker run fehlschlaegt (z.B. bei Port-Konflikt, exit 125).
+            // Diesen Container hier best-effort entfernen, damit er nicht als Zombie bleibt.
+            String partialId = res.stdout.trim();
+            if (!partialId.isBlank()) {
+                System.err.println("docker run failed — removing partial container: " + partialId);
+                try {
+                    exec(List.of("docker", "rm", "-f", partialId), Duration.ofSeconds(10));
+                } catch (Exception ignored) {}
+            }
+
             throw new RuntimeException(
                     "docker run failed (exit " + res.exitCode + ")\n" +
-                            "cmd: " + String.join(" ", cmd) + "\n" +
+                            "cmd: " + formatCmd(cmd) + "\n" +
                             "stderr: " + res.stderr + "\n" +
                             "stdout: " + res.stdout
             );
@@ -618,6 +664,31 @@ public class SingleRun {
         if (s == null) return null;
         if (s.length() <= maxChars) return s;
         return s.substring(0, maxChars) + "\n... (truncated)";
+    }
+
+    /**
+     * Formatiert eine Kommandoliste fuer lesbare Log-Ausgabe.
+     *
+     * Argumente, die Leerzeichen oder Sonderzeichen enthalten, werden in
+     * Anfuehrungszeichen eingeschlossen. Damit ist in der Fehlerausgabe
+     * eindeutig erkennbar, welche Teile ein einzelnes OS-Argument sind
+     * (z.B. JAVA_TOOL_OPTIONS=-Xlog:gc*:stdout -XX:+UseParallelGC).
+     *
+     * @param cmd Kommando als Liste
+     * @return formatierter String
+     */
+    private static String formatCmd(List<String> cmd) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < cmd.size(); i++) {
+            if (i > 0) sb.append(' ');
+            String arg = cmd.get(i);
+            if (arg.contains(" ") || arg.contains("*") || arg.contains("\"")) {
+                sb.append('"').append(arg.replace("\"", "\\\"")).append('"');
+            } else {
+                sb.append(arg);
+            }
+        }
+        return sb.toString();
     }
 
     /**

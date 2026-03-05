@@ -33,6 +33,8 @@ import java.util.List;
  * - --dockerImage:             Docker-Image fuer den CLI-Run (default: "tfl4-ek-bench:jvm")
  * - --skipTravicLink:          TravicLink docker-compose NICHT starten (externer Server erwartet)
  * - --merge-excel:             Alle CSVs aus bench-results/ in ein Excel zusammenfuehren (kein Benchmark)
+ * - --quick:                   Schnelldurchlauf (10 Warmup, 30 Mess-Requests, 1 Wiederholung).
+ *                              Explizite CLI-Werte (z.B. --measureRequests 50) ueberschreiben die Quick-Defaults.
  *
  * Standalone Excel-Merge:
  *   java -cp ... BenchCli --merge-excel
@@ -68,7 +70,8 @@ public class BenchCli {
         int workloadN = resolveWorkloadN(args, scenario);
         MeasurementProfile profile = resolveProfile(args);
         BenchmarkPlan plan = resolvePlan(args, scenario);
-        int repetitions = resolveIntArg(args, "--repetitions", 3);
+        int defaultReps = hasFlag(args, "--quick") ? 1 : 3;
+        int repetitions = resolveIntArg(args, "--repetitions", defaultReps);
 
         System.out.println("Benchmark configuration:");
         System.out.println("  Scenario:     " + scenario);
@@ -113,15 +116,20 @@ public class BenchCli {
 
     /**
      * Baut das Messprofil aus CLI-Argumenten oder Defaults.
+     * Bei --quick werden reduzierte Defaults verwendet (10/30 statt 200/500).
+     * Explizite CLI-Werte ueberschreiben die Quick-Defaults.
      *
      * @param args CLI-Argumente
      * @return konfiguriertes MeasurementProfile
      */
     static MeasurementProfile resolveProfile(String[] args) {
-        int warmup = resolveIntArg(args, "--warmupRequests", 200);
-        int measure = resolveIntArg(args, "--measureRequests", 500);
-        int concurrency = resolveIntArg(args, "--concurrency", 1);
-        long sleepMs = resolveLongArg(args, "--sleepBetweenRequestsMs", 0);
+        boolean quick = hasFlag(args, "--quick");
+        MeasurementProfile base = quick ? MeasurementProfile.quickDefaults() : MeasurementProfile.defaults();
+
+        int warmup = resolveIntArg(args, "--warmupRequests", base.warmupRequests());
+        int measure = resolveIntArg(args, "--measureRequests", base.measureRequests());
+        int concurrency = resolveIntArg(args, "--concurrency", base.concurrency());
+        long sleepMs = resolveLongArg(args, "--sleepBetweenRequestsMs", base.sleepBetweenRequestsMs());
 
         return new MeasurementProfile(warmup, measure, concurrency, sleepMs);
     }

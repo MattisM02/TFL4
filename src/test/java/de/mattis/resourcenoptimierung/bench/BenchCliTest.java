@@ -369,4 +369,54 @@ class BenchCliTest {
         String[] args = {"--repetitions", "1"};
         assertEquals(1, BenchCli.resolveIntArg(args, "--repetitions", 3));
     }
+
+    // ==================== --quick ====================
+
+    @Test
+    void resolveProfile_quick_usesQuickDefaults() {
+        String[] args = {"--quick"};
+        MeasurementProfile p = BenchCli.resolveProfile(args);
+        assertEquals(10, p.warmupRequests());
+        assertEquals(30, p.measureRequests());
+        assertEquals(1, p.concurrency());
+        assertEquals(0, p.sleepBetweenRequestsMs());
+    }
+
+    @Test
+    void resolveProfile_quick_withOverride() {
+        String[] args = {"--quick", "--measureRequests", "50"};
+        MeasurementProfile p = BenchCli.resolveProfile(args);
+        assertEquals(10, p.warmupRequests());   // quick default
+        assertEquals(50, p.measureRequests());   // overridden
+        assertEquals(1, p.concurrency());        // quick default
+        assertEquals(0, p.sleepBetweenRequestsMs());
+    }
+
+    @Test
+    void resolveProfile_quick_partialOverride() {
+        String[] args = {"--quick", "--concurrency", "4"};
+        MeasurementProfile p = BenchCli.resolveProfile(args);
+        assertEquals(10, p.warmupRequests());    // quick default
+        assertEquals(30, p.measureRequests());   // quick default
+        assertEquals(4, p.concurrency());        // overridden
+        assertEquals(0, p.sleepBetweenRequestsMs());
+    }
+
+    @Test
+    void repetitions_quick_defaultIs1() {
+        // Simulates what main() does: quick flag -> default repetitions = 1
+        String[] args = {"--quick"};
+        int defaultReps = BenchCli.hasFlag(args, "--quick") ? 1 : 3;
+        int reps = BenchCli.resolveIntArg(args, "--repetitions", defaultReps);
+        assertEquals(1, reps);
+    }
+
+    @Test
+    void repetitions_quick_explicitOverride() {
+        // --quick setzt default auf 1, aber --repetitions 5 ueberschreibt
+        String[] args = {"--quick", "--repetitions", "5"};
+        int defaultReps = BenchCli.hasFlag(args, "--quick") ? 1 : 3;
+        int reps = BenchCli.resolveIntArg(args, "--repetitions", defaultReps);
+        assertEquals(5, reps);
+    }
 }

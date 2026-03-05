@@ -39,6 +39,16 @@ public record MeasurementProfile(
     }
 
     /**
+     * Schnell-Messprofil fuer --quick: 10 Warmup, 30 Messung, sequentiell, kein Sleep.
+     * 10 Warmup-Requests genuegen fuer minimale JIT-Aufwaermung (kein C2-Steady-State).
+     * 30 Mess-Requests liefern brauchbare p50/p95-Werte (p99 nur eingeschraenkt aussagekraeftig).
+     * Zusammen mit 1 Wiederholung ergibt das einen Durchlauf in wenigen Minuten.
+     */
+    public static MeasurementProfile quickDefaults() {
+        return new MeasurementProfile(10, 30, 1, 0);
+    }
+
+    /**
      * Validiert die Profilwerte und gibt Warnungen bei fragwuerdigen Werten aus.
      *
      * @throws IllegalArgumentException bei ungueltigen Werten

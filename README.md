@@ -24,10 +24,11 @@ Besteht aus:
 ./mvnw clean package -DskipTests          # JAR bauen
 docker build -t tfl4-ek-bench:jvm .       # Docker-Image bauen (Standard)
 docker build -t tfl4-ek-bench:jvm-ek -f Dockerfile.with-ek .  # Docker-Image mit EBICS
-./mvnw test                                # 167 Unit Tests
+./mvnw test                                # 173 Unit Tests
 ./mvnw test -DincludeDocker                # 4 Docker-E2E-Tests
 ./mvnw exec:java                           # Benchmark interaktiv starten
 ./mvnw exec:java -Dexec.args="--scenario json --n 200000"  # nicht-interaktiv
+./mvnw exec:java -Dexec.args="--scenario json --quick"    # Schnelldurchlauf (10/30/1)
 ./mvnw exec:java -Dexec.args="--scenario json --jvmArgs \"-XX:+UseZGC\""  # einzelner Run mit ZGC
 ```
 
@@ -250,6 +251,7 @@ JVM-Flags werden über `JAVA_TOOL_OPTIONS` an den Container übergeben. Bei Nati
 | `--repetitions`             | 3                    | Anzahl Wiederholungen pro Konfiguration (Mittelwert ± Stddev) |
 | `--skipTravicLink`          | —                    | TravicLink-Start überspringen (wenn bereits nativ läuft) |
 | `--merge-excel`             | —                    | Standalone: alle CSVs aus bench-results/ zu benchmark-vergleich.xlsx zusammenführen |
+| `--quick`                   | —                    | Schnelldurchlauf: 10 Warmup, 30 Mess-Requests, 1 Wiederholung. Explizite CLI-Werte überschreiben die Quick-Defaults. |
 
 Beide Formen: `--scenario json` und `--scenario=json`.
 
@@ -258,6 +260,12 @@ Beide Formen: `--scenario json` und `--scenario=json`.
 ```bash
 # Default-Plan (12 Konfigurationen, 3 Wiederholungen):
 ./mvnw exec:java -Dexec.args="--scenario json --n 200000"
+
+# Schnelldurchlauf (10 Warmup, 30 Mess-Requests, 1 Wiederholung):
+./mvnw exec:java -Dexec.args="--scenario json --quick"
+
+# Quick mit mehr Mess-Requests (Quick-Defaults als Basis, measureRequests überschrieben):
+./mvnw exec:java -Dexec.args="--scenario alloc --quick --measureRequests 100"
 
 # 5 Wiederholungen mit EBICS-Szenario (TravicLink muss nativ laufen):
 ./mvnw exec:java -Dexec.args="--scenario ebics-upload --repetitions 5 --skipTravicLink"
@@ -316,7 +324,7 @@ Wenn `--jvmArgs` gesetzt ist, wird **nur eine** Konfiguration mit den angegebene
 ### Ausführen
 
 ```bash
-./mvnw test                  # 167 Unit Tests (kein Docker nötig)
+./mvnw test                  # 173 Unit Tests (kein Docker nötig)
 ./mvnw test -DincludeDocker  # 4 Docker-E2E-Tests (braucht Docker + gebautes Image)
 ```
 
@@ -328,8 +336,8 @@ Docker-E2E-Tests sind mit `@Tag("docker")` markiert. Standardmäßig schließt S
 
 | Klasse                   | Tests | Schwerpunkt                                    |
 |--------------------------|-------|------------------------------------------------|
-| BenchCliTest             | 49    | Argument-Parsing, Szenario-Auflösung, Defaults, --jvmArgs, --repetitions, hasFlag, EBICS-Image-Auswahl |
-| MeasurementProfileTest   | 11    | Validierung, Defaults, ungültige Werte         |
+| BenchCliTest             | 54    | Argument-Parsing, Szenario-Auflösung, Defaults, --jvmArgs, --repetitions, --quick, hasFlag, EBICS-Image-Auswahl |
+| MeasurementProfileTest   | 12    | Validierung, Defaults, quickDefaults, ungültige Werte |
 | BenchmarkConfigTest      | 8     | isNative()-Erkennung, Record-Felder            |
 | BenchmarkPlanTest        | 22    | defaultPlan()-Struktur, alle 12 Konfigurationen, withDockerImage()|
 | DockerStatSampleTest     | 8     | Parsing realer docker-stats-Ausgaben           |
@@ -436,6 +444,6 @@ Der `spring-boot-maven-plugin` bindet System-Scope-JARs ein (`includeSystemScope
 | Build | Maven via Wrapper |
 | Docker Base | Eclipse Temurin JRE 25 |
 | EBICS Kernel | Travic EK 4.0.9 (PPI AG), optional |
-| Tests | JUnit 5, Spring Boot WebMvc Test, 167 Unit + 4 E2E |
+| Tests | JUnit 5, Spring Boot WebMvc Test, 173 Unit + 4 E2E |
 | Container Limits | 1 CPU, 768 MB RAM, Swap deaktiviert |
 | Fat JAR | ~54 MB |

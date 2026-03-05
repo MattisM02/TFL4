@@ -19,6 +19,15 @@ class MeasurementProfileTest {
     }
 
     @Test
+    void quickDefaults_returnsReducedValues() {
+        MeasurementProfile p = MeasurementProfile.quickDefaults();
+        assertEquals(10, p.warmupRequests());
+        assertEquals(30, p.measureRequests());
+        assertEquals(1, p.concurrency());
+        assertEquals(0, p.sleepBetweenRequestsMs());
+    }
+
+    @Test
     void validProfile_createsSuccessfully() {
         MeasurementProfile p = new MeasurementProfile(10, 50, 4, 100);
         assertEquals(10, p.warmupRequests());
