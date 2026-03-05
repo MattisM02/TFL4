@@ -24,7 +24,7 @@ Besteht aus:
 ./mvnw clean package -DskipTests          # JAR bauen
 docker build -t tfl4-ek-bench:jvm .       # Docker-Image bauen (Standard)
 docker build -t tfl4-ek-bench:jvm-ek -f Dockerfile.with-ek .  # Docker-Image mit EBICS
-./mvnw test                                # 166 Unit Tests
+./mvnw test                                # 165 Unit Tests
 ./mvnw test -DincludeDocker                # 4 Docker-E2E-Tests
 ./mvnw exec:java                           # Benchmark interaktiv starten
 ./mvnw exec:java -Dexec.args="--scenario json --n 200000"  # nicht-interaktiv
@@ -156,7 +156,7 @@ Bei Fehlern werden ausführliche Diagnostics geloggt (Config-Werte mit maskierte
 `BenchCli.main()` → `resolvePlan()` (Default-Plan oder `--jvmArgs`) → `BenchmarkRunner.runAll()` → je `SingleRun.execute()`:
 
 ```
-1. docker run -d -p 8080:8080 --cpus 1 --memory 768m [-e JAVA_TOOL_OPTIONS=...] <image>
+1. docker run -d -p 8080:8080 --cpus 1 --memory 768m --memory-swap 768m [-e JAVA_TOOL_OPTIONS=...] <image>
 2. Startup-Logs einsammeln (best-effort, max 200 Zeilen)
 3. Readiness abwarten (Fallback-Kette, siehe unten)
 4. IDLE docker-stats (3 Snapshots, 1s Intervall)
@@ -168,6 +168,8 @@ Bei Fehlern werden ausführliche Diagnostics geloggt (Config-Werte mit maskierte
 10. Container stoppen + entfernen (bei Fehler: Container bleibt für Inspektion)
 ```
 
+Die Startup-Messung (`readinessMs`) umfasst die gesamte Zeitspanne vom `docker run`-Aufruf bis zur Readiness -- inklusive Container-Startup-Overhead.
+
 ### Readiness-Fallback-Kette
 
 ```
@@ -177,6 +179,14 @@ Bei Fehlern werden ausführliche Diagnostics geloggt (Config-Werte mit maskierte
 ```
 
 Polling alle 150ms. Bei 401/403/404 sofort nächster Fallback. Timeout: 120s.
+
+### Wiederholungen und Randomisierung
+
+Bei `--repetitions N` (Default: 3) wird jede Konfiguration N-mal ausgeführt. Pro Durchlauf wird die Reihenfolge der Konfigurationen **randomisiert**, um systematische Effekte (Cache-Warming, CPU-Throttling) zu vermeiden.
+
+Die Konsolenausgabe zeigt nach den Einzelergebnissen eine **Aggregation** pro Konfiguration mit Mittelwert ± Standardabweichung für Readiness, First, p50, p95, Mean-Latenz und Throughput.
+
+Swap ist deaktiviert (`--memory-swap 768m` = identisch mit `--memory`), um Kubernetes-Verhalten nachzubilden.
 
 ### Szenarien
 
@@ -229,6 +239,8 @@ JVM-Flags werden über `JAVA_TOOL_OPTIONS` an den Container übergeben. Bei Nati
 | `--jvmArgs`                 | —                    | JVM-Flags für einen einzelnen Run (überschreibt Default-Plan) |
 | `--configName`              | `cli-custom`         | Name der Konfiguration (nur mit `--jvmArgs`) |
 | `--dockerImage`             | `tfl4-ek-bench:jvm`  | Docker-Image (nur mit `--jvmArgs`)    |
+| `--repetitions`             | 3                    | Anzahl Wiederholungen pro Konfiguration (Mittelwert ± Stddev) |
+| `--skipTravicLink`          | —                    | TravicLink-Start überspringen (wenn bereits nativ läuft) |
 | `--merge-excel`             | —                    | Standalone: alle CSVs aus bench-results/ zu benchmark-vergleich.xlsx zusammenführen |
 
 Beide Formen: `--scenario json` und `--scenario=json`.
@@ -236,8 +248,11 @@ Beide Formen: `--scenario json` und `--scenario=json`.
 ### Beispiele
 
 ```bash
-# Default-Plan (10 Konfigurationen: GC-Vergleich + G1-Tuning + JVM-Interna):
+# Default-Plan (10 Konfigurationen, 3 Wiederholungen):
 ./mvnw exec:java -Dexec.args="--scenario json --n 200000"
+
+# 5 Wiederholungen mit EBICS-Szenario (TravicLink muss nativ laufen):
+./mvnw exec:java -Dexec.args="--scenario ebics-upload --repetitions 5 --skipTravicLink"
 
 # Einzelner Run mit ZGC:
 ./mvnw exec:java -Dexec.args="--scenario json --jvmArgs \"-XX:+UseZGC -Xmx1g\" --configName zgc-test"
@@ -256,8 +271,8 @@ Wenn `--jvmArgs` gesetzt ist, wird **nur eine** Konfiguration mit den angegebene
 
 ### Ergebnis-Export
 
-- **Konsole**: Gruppiert nach Szenario, Readiness/First/Latenz-Perzentile/Throughput als Übersicht, dann pro Run sortiert nach p95 (langsamste zuerst) mit Docker-Stats (IDLE/LOAD/POST)
-- **CSV** (`bench-results/results-<timestamp>.csv`): Eine Zeile pro Run, alle Kennzahlen + Messprofil
+- **Konsole**: Gruppiert nach Szenario, Readiness/First/Latenz-Perzentile/Throughput als Übersicht, dann pro Run sortiert nach p95 (langsamste zuerst) mit Docker-Stats (IDLE/LOAD/POST). Bei mehreren Wiederholungen: Aggregation mit Mittelwert ± Standardabweichung pro Konfiguration.
+- **CSV** (`bench-results/results-<timestamp>.csv`): Eine Zeile pro Run, alle Kennzahlen + Messprofil + `cpuLoadAvg`/`memLoadAvg`/`memLoadMax` + `repetition`
 - **JSON** (`bench-results/results-<timestamp>.json`): Wie CSV, zusätzlich rohe Latenz-Arrays und Messprofil als verschachteltes Objekt
 - **Excel** (`bench-results/results-<timestamp>.xlsx`): 5-Sheet-Workbook mit Balkendiagrammen:
   - Übersicht -- alle Kennzahlen tabellarisch, AutoFilter, Section-Headers, Zebra-Striping
@@ -273,14 +288,18 @@ Wenn `--jvmArgs` gesetzt ist, wird **nur eine** Konfiguration mit den angegebene
 
 | Metrik                | Einheit | Beschreibung |
 |-----------------------|---------|-------------|
-| `readinessMs`         | ms      | Containerstart → Service ready |
+| `readinessMs`         | ms      | docker run → Service ready (inkl. Container-Overhead) |
 | `firstSeconds`        | s       | Erster Request nach Readiness (Cold-Path: JIT, Lazy Init) |
 | `latencyP50/P95/P99`  | s       | Perzentile der Mess-Requests |
 | `totalMeasureTimeSeconds` | s   | Wandzeit der gesamten Messphase |
 | `throughputReqPerSec` | req/s   | measureRequests / totalMeasureTimeSeconds |
+| `cpuLoadAvg`          | %       | Mittlere CPU-Auslastung während LOAD-Phase |
+| `memLoadAvg`          | %       | Mittlere Speicherauslastung während LOAD-Phase |
+| `memLoadMax`          | %       | Maximale Speicherauslastung während LOAD-Phase |
 | `docker CPU%`         | %       | Container-CPU-Auslastung (IDLE/LOAD/POST) |
 | `docker Mem%`         | %       | Speicherauslastung relativ zum Limit (768 MB) |
 | `readinessCheckUsed`  | enum    | Welcher Probe-Typ gegriffen hat |
+| `repetition`          | int     | Wiederholungsnummer (1-basiert) |
 
 ---
 
@@ -289,7 +308,7 @@ Wenn `--jvmArgs` gesetzt ist, wird **nur eine** Konfiguration mit den angegebene
 ### Ausführen
 
 ```bash
-./mvnw test                  # 166 Unit Tests (kein Docker nötig)
+./mvnw test                  # 165 Unit Tests (kein Docker nötig)
 ./mvnw test -DincludeDocker  # 4 Docker-E2E-Tests (braucht Docker + gebautes Image)
 ```
 
@@ -301,18 +320,18 @@ Docker-E2E-Tests sind mit `@Tag("docker")` markiert. Standardmäßig schließt S
 
 | Klasse                   | Tests | Schwerpunkt                                    |
 |--------------------------|-------|------------------------------------------------|
-| BenchCliTest             | 48    | Argument-Parsing, Szenario-Auflösung, Defaults, --jvmArgs, hasFlag, EBICS-Image-Auswahl |
+| BenchCliTest             | 49    | Argument-Parsing, Szenario-Auflösung, Defaults, --jvmArgs, --repetitions, hasFlag, EBICS-Image-Auswahl |
 | MeasurementProfileTest   | 11    | Validierung, Defaults, ungültige Werte         |
 | BenchmarkConfigTest      | 8     | isNative()-Erkennung, Record-Felder            |
 | BenchmarkPlanTest        | 20    | defaultPlan()-Struktur, alle 10 Konfigurationen, withDockerImage()|
 | DockerStatSampleTest     | 8     | Parsing realer docker-stats-Ausgaben           |
 | RunResultTest            | 3     | Record-Zugriff                                 |
-| ConsoleSummaryPrinterTest| 11    | Ausgabe-Formatierung, Sortierung               |
+| ConsoleSummaryPrinterTest| 12    | Ausgabe-Formatierung, Sortierung, Wiederholungs-Aggregation |
 | ResultExportersTest      | 11    | CSV/JSON-Korrektheit, Sonderfälle              |
 | ExcelExporterTest        | 22    | writeExcel (5 Sheets, Charts), mergeFromCsvDirectory, parseCsv, extractTimestamp |
-| TravicLinkManagerTest    | 5     | isEbicsScenario(), Konstruktion                |
+| TravicLinkManagerTest    | 4     | isEbicsScenario(), Konstruktion                |
 | DemoControllerTest       | 7     | /json + /alloc via MockMvc                     |
-| EkControllerTest         | 12    | /ebics/* via MockMvc + maskSensitive()         |
+| EkControllerTest         | 10    | /ebics/* via MockMvc + maskSensitive()         |
 | DockerEndToEndTest       | 4     | Volle SingleRun-Durchläufe mit echten Containern|
 
 ### Docker-E2E-Tests im Detail
@@ -382,7 +401,7 @@ Der `spring-boot-maven-plugin` bindet System-Scope-JARs ein (`includeSystemScope
 
 - Workloads sind **synthetisch** -- isolieren JVM-Effekte, bilden keine Business-Logik ab
 - Ein Container mit `--cpus 1 --memory 768m` bildet kein Produktionsszenario ab
-- Für belastbare Aussagen: mehrere Wiederholungen, Konfidenzintervalle, Störfaktoren kontrollieren (CPU-Scaling, Background Noise)
+- Für belastbare Aussagen: ausreichend Wiederholungen (`--repetitions`, Default 3), Konfidenzintervalle aus der Aggregation ablesen, Störfaktoren kontrollieren (CPU-Scaling, Background Noise)
 - JIT-Effekte können zwischen Runs variieren
 - Readiness-Zeiten hängen vom Host-System und Docker-Konfiguration ab
 
@@ -409,6 +428,6 @@ Der `spring-boot-maven-plugin` bindet System-Scope-JARs ein (`includeSystemScope
 | Build | Maven via Wrapper |
 | Docker Base | Eclipse Temurin JRE 25 |
 | EBICS Kernel | Travic EK 4.0.9 (PPI AG), optional |
-| Tests | JUnit 5, Spring Boot WebMvc Test, 166 Unit + 4 E2E |
-| Container Limits | 1 CPU, 768 MB RAM |
+| Tests | JUnit 5, Spring Boot WebMvc Test, 165 Unit + 4 E2E |
+| Container Limits | 1 CPU, 768 MB RAM, Swap deaktiviert |
 | Fat JAR | ~54 MB |

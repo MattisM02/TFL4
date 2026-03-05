@@ -1,7 +1,9 @@
 package de.mattis.resourcenoptimierung.bench;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Random;
 
 /**
  * Fuehrt einen vollstaendigen Benchmark-Durchlauf aus.
@@ -10,11 +12,14 @@ import java.util.List;
  * - einen BenchmarkPlan (welche Konfigurationen),
  * - ein BenchmarkScenario (welcher Workload),
  * - eine Workload-Groesse n,
- * - ein MeasurementProfile (Warmup/Messung/Concurrency/Sleep).
+ * - ein MeasurementProfile (Warmup/Messung/Concurrency/Sleep),
+ * - eine Anzahl Wiederholungen (repetitions).
  *
- * Fuer jede Konfiguration im Plan wird genau ein SingleRun
- * erzeugt und ausgefuehrt. Die Ergebnisse aller Runs werden
- * gesammelt und zurueckgegeben.
+ * Fuer jede Wiederholung wird die Reihenfolge der Konfigurationen
+ * zufaellig permutiert, um Reihenfolge-Effekte zu minimieren.
+ *
+ * Die Ergebnisse aller Runs (repetitions * configs) werden
+ * gesammelt und als flache Liste zurueckgegeben.
  *
  * Der Runner selbst startet keine Docker-Container
  * und fuehrt keine Messungen durch.
@@ -43,7 +48,12 @@ public class BenchmarkRunner {
     private final MeasurementProfile profile;
 
     /**
-     * Erstellt einen neuen BenchmarkRunner.
+     * Anzahl der Wiederholungen pro Konfiguration.
+     */
+    private final int repetitions;
+
+    /**
+     * Erstellt einen neuen BenchmarkRunner mit einer Wiederholung (Kompatibilitaet).
      *
      * @param plan Benchmark-Plan
      * @param scenario Workload-Szenario
@@ -51,27 +61,67 @@ public class BenchmarkRunner {
      * @param profile Messprofil
      */
     public BenchmarkRunner(BenchmarkPlan plan, BenchmarkScenario scenario, int n, MeasurementProfile profile) {
+        this(plan, scenario, n, profile, 1);
+    }
+
+    /**
+     * Erstellt einen neuen BenchmarkRunner mit konfigurierbarer Wiederholungszahl.
+     *
+     * @param plan Benchmark-Plan
+     * @param scenario Workload-Szenario
+     * @param n Workload-Groesse
+     * @param profile Messprofil
+     * @param repetitions Anzahl Wiederholungen (mindestens 1)
+     */
+    public BenchmarkRunner(BenchmarkPlan plan, BenchmarkScenario scenario, int n,
+                           MeasurementProfile profile, int repetitions) {
         this.plan = plan;
         this.scenario = scenario;
         this.n = n;
         this.profile = profile;
+        this.repetitions = Math.max(1, repetitions);
     }
 
     /**
-     * Fuehrt alle Konfigurationen des Benchmark-Plans aus.
+     * Fuehrt alle Konfigurationen des Benchmark-Plans aus,
+     * wiederholt ueber die konfigurierte Anzahl Runden.
      *
-     * Die Ausfuehrungsreihenfolge entspricht der Reihenfolge
-     * der Konfigurationen im Plan.
+     * Pro Runde wird die Reihenfolge der Konfigurationen
+     * zufaellig permutiert, um systematische Reihenfolge-Effekte
+     * (z.B. Cache-Waerme, Thermal Throttling) zu reduzieren.
      *
-     * @return Ergebnisse aller Runs
+     * @return Ergebnisse aller Runs (repetitions * configs), flache Liste
      * @throws Exception wenn ein einzelner Run fehlschlaegt
      */
     public List<RunResult> runAll() throws Exception {
         List<RunResult> results = new ArrayList<>();
-        for (BenchmarkConfig cfg : plan.configs) {
-            SingleRun run = new SingleRun(cfg, scenario, n, profile);
-            results.add(run.execute());
+        Random rng = new Random();
+
+        for (int rep = 1; rep <= repetitions; rep++) {
+            if (repetitions > 1) {
+                System.out.println();
+                System.out.println("=== Repetition " + rep + " / " + repetitions + " ===");
+            }
+
+            // Configs dieser Runde zufaellig permutieren
+            List<BenchmarkConfig> shuffled = new ArrayList<>(plan.configs);
+            Collections.shuffle(shuffled, rng);
+
+            for (BenchmarkConfig cfg : shuffled) {
+                RunResult result = new SingleRun(cfg, scenario, n, profile,
+                        8080, java.time.Duration.ofSeconds(120), rep).execute();
+                results.add(result);
+            }
         }
         return results;
+    }
+
+    /**
+     * Gibt die konfigurierte Anzahl Wiederholungen zurueck.
+     *
+     * @return Anzahl Wiederholungen
+     */
+    public int repetitions() {
+        return repetitions;
     }
 }

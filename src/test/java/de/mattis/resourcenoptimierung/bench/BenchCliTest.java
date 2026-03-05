@@ -343,4 +343,30 @@ class BenchCliTest {
         String[] args = {"--scenario", "json", "--merge-excel"};
         assertTrue(BenchCli.hasFlag(args, "--merge-excel"));
     }
+
+    // ==================== --repetitions ====================
+
+    @Test
+    void repetitions_defaultIs3() {
+        String[] args = {};
+        assertEquals(3, BenchCli.resolveIntArg(args, "--repetitions", 3));
+    }
+
+    @Test
+    void repetitions_explicitValue() {
+        String[] args = {"--repetitions", "5"};
+        assertEquals(5, BenchCli.resolveIntArg(args, "--repetitions", 3));
+    }
+
+    @Test
+    void repetitions_equalsForm() {
+        String[] args = {"--repetitions=10"};
+        assertEquals(10, BenchCli.resolveIntArg(args, "--repetitions", 3));
+    }
+
+    @Test
+    void repetitions_one_disablesRepetitions() {
+        String[] args = {"--repetitions", "1"};
+        assertEquals(1, BenchCli.resolveIntArg(args, "--repetitions", 3));
+    }
 }

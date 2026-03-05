@@ -6,6 +6,7 @@ import java.util.DoubleSummaryStatistics;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Gibt eine kompakte Zusammenfassung der Benchmark-Ergebnisse auf der Konsole aus.
@@ -55,6 +56,7 @@ public final class ConsoleSummaryPrinter {
 
             printScenarioSummary(group);
             printPerRun(group);
+            printRepetitionAggregation(group);
         }
     }
 
@@ -215,6 +217,85 @@ public final class ConsoleSummaryPrinter {
         List<Double> sorted = new ArrayList<>(l);
         sorted.sort(Double::compareTo);
         return percentile(sorted, 0.95);
+    }
+
+    /**
+     * Gibt eine Aggregation ueber Wiederholungen pro Konfiguration aus.
+     *
+     * Wird nur ausgegeben, wenn es mehrere Wiederholungen pro Config gibt.
+     * Zeigt pro Konfiguration: Mittelwert ± Standardabweichung fuer
+     * Readiness, First-Request, p50, p95, Mean-Latenz und Throughput.
+     *
+     * @param group Runs eines Szenarios
+     */
+    private static void printRepetitionAggregation(List<RunResult> group) {
+        // Gruppieren nach configName
+        Map<String, List<RunResult>> byConfig = group.stream()
+                .collect(Collectors.groupingBy(RunResult::configName, LinkedHashMap::new, Collectors.toList()));
+
+        // Nur ausgeben, wenn mindestens eine Config > 1 Wiederholung hat
+        boolean hasMultiple = byConfig.values().stream().anyMatch(l -> l.size() > 1);
+        if (!hasMultiple) return;
+
+        System.out.println();
+        System.out.println("Aggregation ueber Wiederholungen (mean +/- stddev):");
+
+        for (Map.Entry<String, List<RunResult>> e : byConfig.entrySet()) {
+            String name = e.getKey();
+            List<RunResult> runs = e.getValue();
+
+            if (runs.size() < 2) {
+                System.out.printf(" - %-20s  (%d run, kein Aggregat)%n", name, runs.size());
+                continue;
+            }
+
+            double[] readiness = runs.stream().mapToDouble(RunResult::readinessMs).toArray();
+            double[] first = runs.stream().mapToDouble(RunResult::firstSeconds).toArray();
+            double[] throughput = runs.stream().mapToDouble(RunResult::throughputReqPerSec).toArray();
+
+            double[] p50s = runs.stream().mapToDouble(r -> {
+                List<Double> l = new ArrayList<>(r.latenciesSeconds());
+                l.sort(Double::compareTo);
+                return percentile(l, 0.50);
+            }).toArray();
+
+            double[] p95s = runs.stream().mapToDouble(r -> {
+                List<Double> l = new ArrayList<>(r.latenciesSeconds());
+                l.sort(Double::compareTo);
+                return percentile(l, 0.95);
+            }).toArray();
+
+            double[] means = runs.stream().mapToDouble(r ->
+                    r.latenciesSeconds().stream().mapToDouble(Double::doubleValue).average().orElse(Double.NaN)
+            ).toArray();
+
+            System.out.printf(" - %-20s  (n=%d)%n", name, runs.size());
+            System.out.printf("     readiness:  %s ms%n", fmtMeanStddev(readiness, "%.0f"));
+            System.out.printf("     first:      %s s%n", fmtMeanStddev(first, "%.4f"));
+            System.out.printf("     p50:        %s s%n", fmtMeanStddev(p50s, "%.4f"));
+            System.out.printf("     p95:        %s s%n", fmtMeanStddev(p95s, "%.4f"));
+            System.out.printf("     mean:       %s s%n", fmtMeanStddev(means, "%.4f"));
+            System.out.printf("     throughput: %s req/s%n", fmtMeanStddev(throughput, "%.1f"));
+        }
+    }
+
+    /**
+     * Formatiert Mittelwert +/- Standardabweichung fuer ein Array von Werten.
+     *
+     * @param values Messwerte
+     * @param fmt    printf-Format fuer die Zahlen (z.B. "%.0f" oder "%.4f")
+     * @return formatierte Zeichenkette wie "1234 +/- 56"
+     */
+    private static String fmtMeanStddev(double[] values, String fmt) {
+        double sum = 0;
+        for (double v : values) sum += v;
+        double mean = sum / values.length;
+
+        double sqSum = 0;
+        for (double v : values) sqSum += (v - mean) * (v - mean);
+        double stddev = Math.sqrt(sqSum / values.length);
+
+        return String.format(fmt + " +/- " + fmt, mean, stddev);
     }
 
     /**

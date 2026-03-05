@@ -150,7 +150,8 @@ public final class ExcelExporter {
                 "Sleep (ms)",
                 // Meta
                 "Workload-Pfad",
-                "Workload-N"
+                "Workload-N",
+                "Repetition"
         };
 
         // --- Section Header Row ---
@@ -164,7 +165,7 @@ public final class ExcelExporter {
                 "Docker (LOAD)", "", "",
                 "Docker (IDLE)",
                 "Messprofil", "", "", "",
-                "Meta", ""
+                "Meta", "", ""
         });
 
         // Merge section headers
@@ -174,7 +175,7 @@ public final class ExcelExporter {
         mergeIfValid(sheet, 0, 0, 11, 12); // Durchsatz
         mergeIfValid(sheet, 0, 0, 13, 15); // Docker LOAD
         mergeIfValid(sheet, 0, 0, 17, 20); // Messprofil
-        mergeIfValid(sheet, 0, 0, 21, 22); // Meta
+        mergeIfValid(sheet, 0, 0, 21, 23); // Meta
 
         // --- Column Header Row ---
         XSSFRow headerRow = sheet.createRow(1);
@@ -232,6 +233,7 @@ public final class ExcelExporter {
 
             setCell(row, c++, r.workloadPath(), dataStyle);
             setCellNum(row, c++, r.workloadN(), numStyle);
+            setCellNum(row, c++, r.repetition(), numStyle);
         }
 
         // AutoFilter
@@ -239,7 +241,7 @@ public final class ExcelExporter {
         sheet.createFreezePane(1, 2);
 
         // Auto-size key columns
-        for (int c = 0; c < Math.min(headers.length, 23); c++) {
+        for (int c = 0; c < Math.min(headers.length, 24); c++) {
             sheet.autoSizeColumn(c);
             // Minimum 12 chars, max 35
             int w = sheet.getColumnWidth(c);
@@ -516,7 +518,7 @@ public final class ExcelExporter {
         // Header: Config | Request# | Latenz (s)
         XSSFRow header = sheet.createRow(0);
         header.setHeightInPoints(25);
-        String[] cols = {"Config", "JVM-Flags", "Request #", "Latenz (s)"};
+        String[] cols = {"Config", "JVM-Flags", "Repetition", "Request #", "Latenz (s)"};
         for (int c = 0; c < cols.length; c++) {
             XSSFCell cell = header.createCell(c);
             cell.setCellValue(cols[c]);
@@ -534,8 +536,9 @@ public final class ExcelExporter {
 
                 setCell(row, 0, r.configName(), ds);
                 setCell(row, 1, flags, ds);
-                setCellNum(row, 2, j + 1, ds);
-                setCellNum(row, 3, lats.get(j), ns);
+                setCellNum(row, 2, r.repetition(), ds);
+                setCellNum(row, 3, j + 1, ds);
+                setCellNum(row, 4, lats.get(j), ns);
             }
         }
 

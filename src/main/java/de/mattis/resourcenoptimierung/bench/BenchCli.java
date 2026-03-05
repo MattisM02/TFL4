@@ -27,6 +27,7 @@ import java.util.List;
  * - --measureRequests:         Anzahl Mess-Requests (default: 100)
  * - --concurrency:             Parallele Requests (default: 1)
  * - --sleepBetweenRequestsMs:  Pause zwischen Requests in ms (default: 0)
+ * - --repetitions:             Anzahl Wiederholungen pro Konfiguration (default: 3)
  * - --jvmArgs:                 JVM-Flags fuer einen einzelnen Run (z.B. "--jvmArgs \"-XX:+UseZGC -Xmx1g\"")
  * - --configName:              Name fuer die CLI-Konfiguration (default: "cli-custom")
  * - --dockerImage:             Docker-Image fuer den CLI-Run (default: "tfl4-ek-bench:jvm")
@@ -67,12 +68,14 @@ public class BenchCli {
         int workloadN = resolveWorkloadN(args, scenario);
         MeasurementProfile profile = resolveProfile(args);
         BenchmarkPlan plan = resolvePlan(args, scenario);
+        int repetitions = resolveIntArg(args, "--repetitions", 3);
 
         System.out.println("Benchmark configuration:");
-        System.out.println("  Scenario:  " + scenario);
-        System.out.println("  Workload:  n=" + workloadN);
-        System.out.println("  Profile:   " + profile);
-        System.out.println("  Configs:   " + plan.configs.size()
+        System.out.println("  Scenario:     " + scenario);
+        System.out.println("  Workload:     n=" + workloadN);
+        System.out.println("  Profile:      " + profile);
+        System.out.println("  Repetitions:  " + repetitions);
+        System.out.println("  Configs:      " + plan.configs.size()
                 + " (" + plan.configs.stream().map(BenchmarkConfig::name).toList() + ")");
         System.out.println();
 
@@ -84,7 +87,7 @@ public class BenchCli {
         }
 
         try {
-            BenchmarkRunner runner = new BenchmarkRunner(plan, scenario, workloadN, profile);
+            BenchmarkRunner runner = new BenchmarkRunner(plan, scenario, workloadN, profile, repetitions);
 
             List<RunResult> results = runner.runAll();
 

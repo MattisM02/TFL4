@@ -67,6 +67,11 @@ public class SingleRun {
     private final MeasurementProfile profile;
 
     /**
+     * 1-basierte Wiederholungsnummer.
+     */
+    private final int repetition;
+
+    /**
      * Erstellt einen SingleRun mit Default-Port 8080 und 120s Readiness-Timeout.
      *
      * @param cfg Benchmark-Konfiguration
@@ -75,7 +80,7 @@ public class SingleRun {
      * @param profile Messprofil
      */
     public SingleRun(BenchmarkConfig cfg, BenchmarkScenario scenario, int workloadN, MeasurementProfile profile) {
-        this(cfg, scenario, workloadN, profile, 8080, Duration.ofSeconds(120));
+        this(cfg, scenario, workloadN, profile, 8080, Duration.ofSeconds(120), 1);
     }
 
     /**
@@ -87,15 +92,17 @@ public class SingleRun {
      * @param profile Messprofil
      * @param port Host-Port fuer das Port-Mapping
      * @param readinessTimeout maximale Wartezeit auf Readiness
+     * @param repetition 1-basierte Wiederholungsnummer
      */
     public SingleRun(BenchmarkConfig cfg, BenchmarkScenario scenario, int workloadN,
-                     MeasurementProfile profile, int port, Duration readinessTimeout) {
+                     MeasurementProfile profile, int port, Duration readinessTimeout, int repetition) {
         this.cfg = cfg;
         this.scenario = scenario;
         this.workloadN = workloadN;
         this.profile = profile;
         this.port = port;
         this.readinessTimeout = readinessTimeout;
+        this.repetition = repetition;
     }
 
     /**
@@ -141,6 +148,9 @@ public class SingleRun {
 
             // 2) Container starten
             //    dockerRun uebernimmt das Port-Mapping und setzt ggf. -e JAVA_TOOL_OPTIONS=...
+            //    Timer startet VOR docker run, damit die Container-Startzeit (Image-Pull, Overlay-FS,
+            //    Namespace-Setup) in readinessMs enthalten ist — analog zu Kubernetes-Pod-Startup.
+            long startNanos = System.nanoTime();
             containerId = dockerRun(cfg, port, effectiveJavaToolOptions);
 
             // 3) Proof: kurze Start-Logs speichern (best-effort)
@@ -173,7 +183,8 @@ public class SingleRun {
             ReadinessProber.ReadinessResult rr =
                     prober.waitUntilReady("http://localhost:" + port, readinessTimeout, path);
 
-            long readinessMs = rr.readinessMs();
+            // readinessMs = Zeit von VOR docker run bis ready (inkl. Container-Startup)
+            long readinessMs = (System.nanoTime() - startNanos) / 1_000_000;
             ReadinessCheckUsed readinessCheckUsed = rr.used();
 
             // 5) Idle samples direkt nach readiness
@@ -238,7 +249,8 @@ public class SingleRun {
                     profile,
                     dockerIdleSamples,
                     dockerLoadSamples,
-                    dockerPostSamples
+                    dockerPostSamples,
+                    repetition
             );
 
             success = true;
@@ -288,7 +300,8 @@ public class SingleRun {
                 "-d",
                 "-p", port + ":8080",
                 "--cpus", "1",
-                "--memory", "768m"
+                "--memory", "768m",
+                "--memory-swap", "768m"   // gleich wie --memory => Swap deaktiviert (Kubernetes-Verhalten)
         ));
 
         // EBICS: Hostname des Host-Rechners im Container auflösbar machen,

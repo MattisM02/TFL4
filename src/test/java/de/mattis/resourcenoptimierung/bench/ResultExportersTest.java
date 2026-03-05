@@ -36,7 +36,8 @@ class ResultExportersTest {
                 MeasurementProfile.defaults(),
                 List.of(),
                 List.of(),
-                List.of()
+                List.of(),
+                1
         );
     }
 
@@ -74,6 +75,7 @@ class ResultExportersTest {
         assertTrue(header.contains("measureRequests"));
         assertTrue(header.contains("concurrency"));
         assertTrue(header.contains("sleepBetweenRequestsMs"));
+        assertTrue(header.contains("repetition"));
     }
 
     @Test
@@ -122,7 +124,7 @@ class ResultExportersTest {
                 "", ReadinessCheckUsed.ACTUATOR_HEALTH, null,
                 BenchmarkScenario.ALLOC_HEAVY_OK, 1000, "/alloc?n=1000",
                 new MeasurementProfile(5, 50, 4, 100),
-                List.of(), List.of(), List.of()
+                List.of(), List.of(), List.of(), 1
         );
 
         ResultExporters.writeCsv(List.of(result), csvPath);
@@ -159,6 +161,7 @@ class ResultExportersTest {
         assertTrue(json.contains("\"measurementProfile\":{"));
         assertTrue(json.contains("\"warmupRequests\":20"));
         assertTrue(json.contains("\"measureRequests\":100"));
+        assertTrue(json.contains("\"repetition\":1"));
     }
 
     @Test
@@ -193,7 +196,7 @@ class ResultExportersTest {
                 null, null, null,
                 BenchmarkScenario.PAYLOAD_HEAVY_JSON, 100, "/json?n=100",
                 MeasurementProfile.defaults(),
-                null, null, null
+                null, null, null, 1
         );
 
         ResultExporters.writeJson(List.of(result), jsonPath);

@@ -101,7 +101,7 @@ class DockerEndToEndTest {
         int workloadN = 100;
         BenchmarkScenario scenario = BenchmarkScenario.PAYLOAD_HEAVY_JSON;
 
-        SingleRun run = new SingleRun(cfg, scenario, workloadN, profile, TEST_PORT, READINESS_TIMEOUT);
+        SingleRun run = new SingleRun(cfg, scenario, workloadN, profile, TEST_PORT, READINESS_TIMEOUT, 1);
         RunResult result = run.execute();
 
         // --- Metadaten pruefen ---
@@ -188,7 +188,7 @@ class DockerEndToEndTest {
         int workloadN = 1000;
         BenchmarkScenario scenario = BenchmarkScenario.ALLOC_HEAVY_OK;
 
-        SingleRun run = new SingleRun(cfg, scenario, workloadN, profile, TEST_PORT, READINESS_TIMEOUT);
+        SingleRun run = new SingleRun(cfg, scenario, workloadN, profile, TEST_PORT, READINESS_TIMEOUT, 1);
         RunResult result = run.execute();
 
         assertEquals("e2e-alloc-test", result.configName());
@@ -214,7 +214,7 @@ class DockerEndToEndTest {
         int workloadN = 50;
         BenchmarkScenario scenario = BenchmarkScenario.PAYLOAD_HEAVY_JSON;
 
-        SingleRun run = new SingleRun(cfg, scenario, workloadN, profile, TEST_PORT, READINESS_TIMEOUT);
+        SingleRun run = new SingleRun(cfg, scenario, workloadN, profile, TEST_PORT, READINESS_TIMEOUT, 1);
         RunResult result = run.execute();
 
         assertEquals("e2e-flags-test", result.configName());
@@ -251,7 +251,7 @@ class DockerEndToEndTest {
         int workloadN = 50;
         BenchmarkScenario scenario = BenchmarkScenario.PAYLOAD_HEAVY_JSON;
 
-        SingleRun run = new SingleRun(cfg, scenario, workloadN, profile, TEST_PORT, READINESS_TIMEOUT);
+        SingleRun run = new SingleRun(cfg, scenario, workloadN, profile, TEST_PORT, READINESS_TIMEOUT, 1);
         RunResult result = run.execute();
 
         assertEquals("e2e-concurrent-test", result.configName());

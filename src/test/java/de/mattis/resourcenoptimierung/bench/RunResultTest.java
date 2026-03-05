@@ -33,7 +33,8 @@ class RunResultTest {
                 profile,
                 List.of(),
                 List.of(),
-                List.of()
+                List.of(),
+                1
         );
 
         assertEquals("baseline", result.configName());
@@ -53,6 +54,7 @@ class RunResultTest {
         assertTrue(result.dockerIdleSamples().isEmpty());
         assertTrue(result.dockerLoadSamples().isEmpty());
         assertTrue(result.dockerPostSamples().isEmpty());
+        assertEquals(1, result.repetition());
     }
 
     @Test
@@ -75,7 +77,8 @@ class RunResultTest {
                 profile,
                 null,  // dockerIdleSamples
                 null,  // dockerLoadSamples
-                null   // dockerPostSamples
+                null,  // dockerPostSamples
+                1
         );
 
         assertNull(result.effectiveJavaToolOptions());
@@ -92,12 +95,12 @@ class RunResultTest {
         RunResult a = new RunResult("a", "img:jvm", 100, 0.1, lats, 1.0, 100.0,
                 "", ReadinessCheckUsed.ACTUATOR_HEALTH, null,
                 BenchmarkScenario.PAYLOAD_HEAVY_JSON, 100, "/json?n=100",
-                profile, List.of(), List.of(), List.of());
+                profile, List.of(), List.of(), List.of(), 1);
 
         RunResult b = new RunResult("a", "img:jvm", 100, 0.1, lats, 1.0, 100.0,
                 "", ReadinessCheckUsed.ACTUATOR_HEALTH, null,
                 BenchmarkScenario.PAYLOAD_HEAVY_JSON, 100, "/json?n=100",
-                profile, List.of(), List.of(), List.of());
+                profile, List.of(), List.of(), List.of(), 1);
 
         assertEquals(a, b);
     }

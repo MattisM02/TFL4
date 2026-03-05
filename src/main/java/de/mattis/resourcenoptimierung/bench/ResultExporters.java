@@ -43,7 +43,9 @@ public final class ResultExporters {
                     "readinessCheckUsed,readinessMs,firstSeconds," +
                     "latencyCount,latencyMean,latencyP50,latencyP95,latencyP99," +
                     "totalMeasureTimeSeconds,throughputReqPerSec," +
-                    "warmupRequests,measureRequests,concurrency,sleepBetweenRequestsMs");
+                    "warmupRequests,measureRequests,concurrency,sleepBetweenRequestsMs," +
+                    "cpuLoadAvg,memLoadAvg,memLoadMax," +
+                    "repetition");
             w.newLine();
 
             for (RunResult r : results) {
@@ -85,7 +87,16 @@ public final class ResultExporters {
                 w.write(Integer.toString(p.warmupRequests())); w.write(",");
                 w.write(Integer.toString(p.measureRequests())); w.write(",");
                 w.write(Integer.toString(p.concurrency())); w.write(",");
-                w.write(Long.toString(p.sleepBetweenRequestsMs()));
+                w.write(Long.toString(p.sleepBetweenRequestsMs())); w.write(",");
+
+                // --- Docker-Stats (LOAD-Phase) ---
+                double cpuLoadAvg = dockerLoadAvg(r.dockerLoadSamples(), DockerStatSample::cpuPercent);
+                double memLoadAvg = dockerLoadAvg(r.dockerLoadSamples(), DockerStatSample::memPercent);
+                double memLoadMax = dockerLoadMax(r.dockerLoadSamples(), DockerStatSample::memPercent);
+                w.write(Double.toString(cpuLoadAvg)); w.write(",");
+                w.write(Double.toString(memLoadAvg)); w.write(",");
+                w.write(Double.toString(memLoadMax)); w.write(",");
+                w.write(Integer.toString(r.repetition()));
                 w.newLine();
             }
         }
@@ -136,7 +147,10 @@ public final class ResultExporters {
             sb.append("\"measureRequests\":").append(p.measureRequests()).append(",");
             sb.append("\"concurrency\":").append(p.concurrency()).append(",");
             sb.append("\"sleepBetweenRequestsMs\":").append(p.sleepBetweenRequestsMs());
-            sb.append("}");
+            sb.append("},");
+
+            // Repetition
+            sb.append("\"repetition\":").append(r.repetition());
 
             sb.append("}");
         }
@@ -211,5 +225,31 @@ public final class ResultExporters {
         if (flags == null) return null;     // native
         if (flags.isBlank()) return "";     // baseline "(none)" lieber im Printer darstellen
         return flags;
+    }
+
+    /**
+     * Berechnet den Durchschnitt eines Feldes ueber Docker-Stat-Samples.
+     *
+     * @param samples Docker-Stat-Samples (darf null/leer sein)
+     * @param extractor Funktion zum Extrahieren des Werts
+     * @return Durchschnitt oder NaN wenn keine Samples
+     */
+    private static double dockerLoadAvg(List<DockerStatSample> samples,
+                                         java.util.function.ToDoubleFunction<DockerStatSample> extractor) {
+        if (samples == null || samples.isEmpty()) return Double.NaN;
+        return samples.stream().mapToDouble(extractor).average().orElse(Double.NaN);
+    }
+
+    /**
+     * Berechnet das Maximum eines Feldes ueber Docker-Stat-Samples.
+     *
+     * @param samples Docker-Stat-Samples (darf null/leer sein)
+     * @param extractor Funktion zum Extrahieren des Werts
+     * @return Maximum oder NaN wenn keine Samples
+     */
+    private static double dockerLoadMax(List<DockerStatSample> samples,
+                                         java.util.function.ToDoubleFunction<DockerStatSample> extractor) {
+        if (samples == null || samples.isEmpty()) return Double.NaN;
+        return samples.stream().mapToDouble(extractor).max().orElse(Double.NaN);
     }
 }

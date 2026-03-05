@@ -8,7 +8,8 @@ import java.util.List;
  * Ein RunResult gehoert zu:
  * - genau einer BenchmarkConfig,
  * - genau einem BenchmarkScenario,
- * - einer festen Workload-Groesse n.
+ * - einer festen Workload-Groesse n,
+ * - einer Wiederholung (repetition) innerhalb eines Durchlaufs.
  *
  * Das Objekt enthaelt Metadaten (welche Konfiguration wurde getestet),
  * Timing-Metriken (Readiness, First Request, Latenzen, Gesamtzeit, Durchsatz)
@@ -16,7 +17,7 @@ import java.util.List;
  *
  * @param configName Name der Konfiguration (z.B. "baseline", "coops-off")
  * @param dockerImage verwendetes Docker-Image
- * @param readinessMs Zeit bis "ready" in Millisekunden
+ * @param readinessMs Zeit von docker run bis "ready" in Millisekunden (inkl. Container-Startup)
  * @param firstSeconds Dauer des ersten Requests nach Readiness in Sekunden
  * @param latenciesSeconds gemessene Request-Latenzen in Sekunden
  * @param totalMeasureTimeSeconds Gesamtdauer der Messphase (alle measureRequests) in Sekunden
@@ -31,6 +32,7 @@ import java.util.List;
  * @param dockerIdleSamples Docker-Stats kurz nach Readiness (vor Last)
  * @param dockerLoadSamples Docker-Stats waehrend der Lastphase
  * @param dockerPostSamples Docker-Stats nach der Lastphase
+ * @param repetition 1-basierte Wiederholungsnummer (1..N)
  */
 public record RunResult(
         String configName,
@@ -49,4 +51,5 @@ public record RunResult(
         MeasurementProfile measurementProfile,
         List<DockerStatSample> dockerIdleSamples,
         List<DockerStatSample> dockerLoadSamples,
-        List<DockerStatSample> dockerPostSamples) { }
+        List<DockerStatSample> dockerPostSamples,
+        int repetition) { }
