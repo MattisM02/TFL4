@@ -108,7 +108,6 @@ public class SingleRun {
             case PAYLOAD_HEAVY_JSON -> "/json?n=" + workloadN;
             case ALLOC_HEAVY_OK -> "/alloc?n=" + workloadN;
             case EBICS_UPLOAD -> "/ebics/upload?n=" + workloadN;
-            case EBICS_DOWNLOAD -> "/ebics/download?n=" + workloadN;
         };
     }
 
@@ -292,6 +291,14 @@ public class SingleRun {
                 "--memory", "768m"
         ));
 
+        // EBICS: Hostname des Host-Rechners im Container auflösbar machen,
+        // damit der EK-Client den TravicLink-Server via https://nbag0342:7070/ erreichen kann.
+        // host-gateway ist ein Docker-Feature (seit 20.10) das auf die Host-IP zeigt.
+        if (TravicLinkManager.isEbicsScenario(scenario)) {
+            cmd.add("--add-host");
+            cmd.add("nbag0342:host-gateway");
+        }
+
         // JAVA_TOOL_OPTIONS setzen (nur fuer JVM, nicht fuer native)
         if (!cfg.isNative()) {
             String javaToolOptions = (effectiveJavaToolOptions == null) ? "" : effectiveJavaToolOptions.trim();
@@ -330,8 +337,12 @@ public class SingleRun {
     private double measureEndpointSeconds(String path) throws Exception {
         URI uri = URI.create("http://localhost:" + port + path);
 
+        // EBICS-Uploads sind langsam (~1-3s pro Upload), daher laengeres Timeout
+        Duration requestTimeout = scenario == BenchmarkScenario.EBICS_UPLOAD
+                ? Duration.ofSeconds(120) : Duration.ofSeconds(5);
+
         HttpRequest req = HttpRequest.newBuilder(uri)
-                .timeout(Duration.ofSeconds(5))
+                .timeout(requestTimeout)
                 .GET()
                 .build();
 

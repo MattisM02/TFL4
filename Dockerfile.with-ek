@@ -1,16 +1,17 @@
-FROM eclipse-temurin:21-jre
+FROM eclipse-temurin:25-jre
 
 WORKDIR /app
 
 COPY target/jvm-optim-demo-0.0.1-SNAPSHOT.jar app.jar
 
-# EBICS config, PKCS#12 keys, and test data
+# EBICS config, PKCS#12 keys
 COPY ebics/ebicsclient.config ebics/ebicsclient_a00.p12 ebics/ebicsclient_e00.p12 ebics/ebicsclient_x00.p12 /app/ebics/
 
 # Test file is generated at runtime by EkController.createTestFile()
 # (realistic pain.001.003.03 SEPA Credit Transfer XML)
 
-ENV JAVA_TOOL_OPTIONS="-Xms256m -Xmx512m"
+# JAVA_TOOL_OPTIONS is set dynamically by the benchmark via -e flag.
+# Do NOT hardcode it here — the benchmark needs to control JVM flags per config.
 
 EXPOSE 8080
 

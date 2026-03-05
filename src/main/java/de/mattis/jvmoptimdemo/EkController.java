@@ -49,7 +49,6 @@ public class EkController {
 
     private final AtomicLong requestCounter = new AtomicLong(0);
     private final AtomicLong uploadCounter = new AtomicLong(0);
-    private final AtomicLong downloadCounter = new AtomicLong(0);
     private final AtomicBoolean initialized = new AtomicBoolean(false);
 
     // EK state - initialized lazily
@@ -110,44 +109,12 @@ public class EkController {
         return result;
     }
 
-    @GetMapping("/download")
-    public Map<String, Object> download(
-            @RequestParam(name = "n", defaultValue = "1") int n
-    ) {
-        requestCounter.incrementAndGet();
-        long startTime = System.nanoTime();
-
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("status", "ok");
-        result.put("mode", mode.name());
-        result.put("requested", n);
-
-        try {
-            ensureInitialized();
-            for (int i = 0; i < n; i++) {
-                performEkDownload();
-            }
-            result.put("downloadCount", downloadCounter.addAndGet(n));
-        } catch (Exception e) {
-            log.error("EK download error", e);
-            result.put("status", "error");
-            result.put("error", e.getClass().getSimpleName() + ": " + e.getMessage());
-        }
-
-        long durationMs = (System.nanoTime() - startTime) / 1_000_000;
-        result.put("durationMs", durationMs);
-        result.put("mode", mode.name());
-
-        return result;
-    }
-
     @GetMapping("/stats")
     public Map<String, Object> stats() {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("mode", mode.name());
         result.put("totalRequests", requestCounter.get());
         result.put("totalUploads", uploadCounter.get());
-        result.put("totalDownloads", downloadCounter.get());
         result.put("ekAvailable", checkEkAvailable());
         result.put("ekInitialized", initialized.get());
         return result;
@@ -301,7 +268,6 @@ public class EkController {
     private void logEkClasspathDiagnostics() {
         String[] criticalClasses = {
                 "de.ppi.fis.travic.ebics.kernel.api.main.Upload",
-                "de.ppi.fis.travic.ebics.kernel.api.main.Download",
                 "de.ppi.fis.travic.ebics.kernel.api.main.HPB",
                 "de.ppi.fis.travic.ebics.kernel.api.main.Configuration",
                 "de.ppi.fis.travic.ebics.kernel.api.main.CryptoUtility",
@@ -544,7 +510,7 @@ public class EkController {
         // Upload erstellen und ausfuehren
         Class<?> uploadClass = Class.forName("de.ppi.fis.travic.ebics.kernel.api.main.Upload");
         Class<?> orderSigClass = Class.forName("de.ppi.fis.travic.ebics.kernel.api.model.OrderSignature");
-        Class<?> persisterClass = Class.forName("de.ppi.fis.travic.ebics.kernel.api.crypt.Persister");
+        Class<?> persisterClass = Class.forName("de.ppi.fis.travic.ebics.kernel.api.model.Persister");
         Class<?> progressClass = Class.forName("de.ppi.fis.travic.ebics.kernel.api.model.ProgressHandler");
 
         Object upload = uploadClass.getMethod("create",
@@ -562,42 +528,6 @@ public class EkController {
         // Senden
         Object result = upload.getClass().getMethod("send").invoke(upload);
         log.info("EBICS upload successful (REAL mode)");
-    }
-
-    private void performEkDownload() throws Exception {
-        if (mode != EkMode.REAL) {
-            log.debug("EK SIMULATION mode - running simulated download");
-            simulateEkOperation();
-            return;
-        }
-
-        log.debug("Performing real EBICS download (REAL mode)");
-
-        Class<?> serverParamsClass = Class.forName("de.ppi.fis.travic.ebics.kernel.api.parameters.ServerParameters");
-        Class<?> userParamsClass = Class.forName("de.ppi.fis.travic.ebics.kernel.api.parameters.UserParameters");
-        Class<?> signerClass = Class.forName("de.ppi.fis.travic.ebics.kernel.api.crypt.Signer");
-        Class<?> decrypterClass = Class.forName("de.ppi.fis.travic.ebics.kernel.api.crypt.Decrypter");
-        Class<?> persisterClass = Class.forName("de.ppi.fis.travic.ebics.kernel.api.crypt.Persister");
-        Class<?> progressClass = Class.forName("de.ppi.fis.travic.ebics.kernel.api.model.ProgressHandler");
-
-        Class<?> downloadClass = Class.forName("de.ppi.fis.travic.ebics.kernel.api.main.Download");
-        Object download = downloadClass.getMethod("create",
-                serverParamsClass, userParamsClass,
-                String.class, String.class,
-                persisterClass, progressClass, signerClass, decrypterClass
-        ).invoke(null,
-                serverParams, userParams,
-                orderType, "DZHNN",
-                null, null, x00Signer, e00Decrypter);
-
-        // Temporaere Datei fuer Download
-        File tmpFile = File.createTempFile("ebics-download-", ".tmp");
-        tmpFile.deleteOnExit();
-        download.getClass().getMethod("setDataFile", File.class).invoke(download, tmpFile);
-
-        Object result = download.getClass().getMethod("send").invoke(download);
-        log.info("EBICS download successful (REAL mode), size={} bytes", tmpFile.length());
-        tmpFile.delete();
     }
 
     /**
@@ -817,7 +747,27 @@ public class EkController {
                 }
             }
         }
+
+        // Environment-Variablen ueberschreiben Config-Datei-Werte (z.B. fuer Docker-Networking)
+        applyEnvOverride(props, "EBICS_URL", "ebicsUrl");
+        applyEnvOverride(props, "EBICS_LICENSE", "ebicsKernelLicense");
+        applyEnvOverride(props, "EBICS_HOST_ID", "ebicsHostId");
+        applyEnvOverride(props, "EBICS_CUSTOMER_ID", "customerId");
+        applyEnvOverride(props, "EBICS_USER_ID", "userId");
+
         return props;
+    }
+
+    private void applyEnvOverride(Properties props, String envVar, String propKey) {
+        String value = System.getenv(envVar);
+        if (value != null && !value.isBlank()) {
+            String old = props.getProperty(propKey, "");
+            props.setProperty(propKey, value);
+            if (!value.equals(old)) {
+                log.info("ENV override: {} -> {} (was: {})", envVar, propKey,
+                        old.isEmpty() ? "(empty)" : old);
+            }
+        }
     }
 
     private String resolveKeyFile(String keyFile) {

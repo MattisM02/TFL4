@@ -15,7 +15,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * fehl (keine Lizenz vorhanden). Daher:
  * - checkEkAvailable() = true  (Klassen gefunden)
  * - mode = SIMULATION           (initializeEk() wirft Exception, mode bleibt default)
- * - upload/download = "error"   (ensureInitialized() wirft in den catch-Block)
+ * - upload = "error"             (ensureInitialized() wirft in den catch-Block)
  */
 @WebMvcTest(EkController.class)
 class EkControllerTest {
@@ -56,33 +56,12 @@ class EkControllerTest {
     }
 
     @Test
-    void download_returnsErrorWithoutLicense() throws Exception {
-        mockMvc.perform(get("/ebics/download").param("n", "1"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("error"))
-                .andExpect(jsonPath("$.mode").value("SIMULATION"))
-                .andExpect(jsonPath("$.requested").value(1))
-                .andExpect(jsonPath("$.error").exists())
-                .andExpect(jsonPath("$.durationMs").exists());
-    }
-
-    @Test
-    void download_defaultN_returnsError() throws Exception {
-        mockMvc.perform(get("/ebics/download"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("error"))
-                .andExpect(jsonPath("$.mode").value("SIMULATION"))
-                .andExpect(jsonPath("$.error").exists());
-    }
-
-    @Test
     void stats_returnsCounters() throws Exception {
         mockMvc.perform(get("/ebics/stats"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.mode").exists())
                 .andExpect(jsonPath("$.totalRequests").exists())
                 .andExpect(jsonPath("$.totalUploads").exists())
-                .andExpect(jsonPath("$.totalDownloads").exists())
                 // EK JARs are on the classpath (system-scope), so ekAvailable = true
                 .andExpect(jsonPath("$.ekAvailable").value(true))
                 .andExpect(jsonPath("$.ekInitialized").exists());

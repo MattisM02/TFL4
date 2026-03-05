@@ -2,6 +2,8 @@ package de.mattis.resourcenoptimierung.bench;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -100,12 +102,6 @@ class BenchCliTest {
     }
 
     @Test
-    void parseScenario_ebicsDownload_variants() {
-        assertEquals(BenchmarkScenario.EBICS_DOWNLOAD, BenchCli.parseScenario("ebics-download"));
-        assertEquals(BenchmarkScenario.EBICS_DOWNLOAD, BenchCli.parseScenario("download"));
-    }
-
-    @Test
     void parseScenario_caseInsensitive() {
         assertEquals(BenchmarkScenario.PAYLOAD_HEAVY_JSON, BenchCli.parseScenario("JSON"));
         assertEquals(BenchmarkScenario.ALLOC_HEAVY_OK, BenchCli.parseScenario("ALLOC"));
@@ -153,11 +149,6 @@ class BenchCliTest {
         assertEquals(10, BenchCli.resolveWorkloadN(new String[]{}, BenchmarkScenario.EBICS_UPLOAD));
     }
 
-    @Test
-    void resolveWorkloadN_defaultEbicsDownload() {
-        assertEquals(10, BenchCli.resolveWorkloadN(new String[]{}, BenchmarkScenario.EBICS_DOWNLOAD));
-    }
-
     // ==================== resolveProfile ====================
 
     @Test
@@ -189,5 +180,167 @@ class BenchCliTest {
         assertEquals(100, p.measureRequests()); // default
         assertEquals(8, p.concurrency());       // overridden
         assertEquals(0, p.sleepBetweenRequestsMs()); // default
+    }
+
+    // ==================== parseJvmArgs ====================
+
+    @Test
+    void parseJvmArgs_multipleFlags() {
+        List<String> result = BenchCli.parseJvmArgs("-XX:+UseZGC -Xmx1g");
+        assertEquals(List.of("-XX:+UseZGC", "-Xmx1g"), result);
+    }
+
+    @Test
+    void parseJvmArgs_singleFlag() {
+        List<String> result = BenchCli.parseJvmArgs("-XX:-UseCompressedOops");
+        assertEquals(List.of("-XX:-UseCompressedOops"), result);
+    }
+
+    @Test
+    void parseJvmArgs_emptyString_returnsEmptyList() {
+        assertEquals(List.of(), BenchCli.parseJvmArgs(""));
+    }
+
+    @Test
+    void parseJvmArgs_blankString_returnsEmptyList() {
+        assertEquals(List.of(), BenchCli.parseJvmArgs("   "));
+    }
+
+    @Test
+    void parseJvmArgs_null_returnsEmptyList() {
+        assertEquals(List.of(), BenchCli.parseJvmArgs(null));
+    }
+
+    @Test
+    void parseJvmArgs_extraWhitespace_trimmed() {
+        List<String> result = BenchCli.parseJvmArgs("  -Xmx512m   -Xms256m  ");
+        assertEquals(List.of("-Xmx512m", "-Xms256m"), result);
+    }
+
+    // ==================== resolvePlan ====================
+
+    @Test
+    void resolvePlan_noJvmArgs_returnsDefaultPlan() {
+        String[] args = {"--scenario", "json"};
+        BenchmarkPlan plan = BenchCli.resolvePlan(args, BenchmarkScenario.PAYLOAD_HEAVY_JSON);
+        BenchmarkPlan defaultPlan = BenchmarkPlan.defaultPlan();
+        assertEquals(defaultPlan.configs.size(), plan.configs.size());
+        assertEquals("baseline", plan.configs.get(0).name());
+    }
+
+    @Test
+    void resolvePlan_withJvmArgs_returnsSingleConfig() {
+        String[] args = {"--jvmArgs", "-XX:+UseZGC -Xmx1g"};
+        BenchmarkPlan plan = BenchCli.resolvePlan(args, BenchmarkScenario.PAYLOAD_HEAVY_JSON);
+        assertEquals(1, plan.configs.size());
+        assertEquals("cli-custom", plan.configs.get(0).name());
+        assertEquals(List.of("-XX:+UseZGC", "-Xmx1g"), plan.configs.get(0).jvmArgs());
+        assertEquals("tfl4-ek-bench:jvm", plan.configs.get(0).dockerImage());
+    }
+
+    @Test
+    void resolvePlan_withJvmArgs_emptyString_returnsBaselineRun() {
+        String[] args = {"--jvmArgs", ""};
+        BenchmarkPlan plan = BenchCli.resolvePlan(args, BenchmarkScenario.PAYLOAD_HEAVY_JSON);
+        assertEquals(1, plan.configs.size());
+        assertTrue(plan.configs.get(0).jvmArgs().isEmpty());
+    }
+
+    @Test
+    void resolvePlan_customConfigName() {
+        String[] args = {"--jvmArgs", "-XX:+UseZGC", "--configName", "zgc-test"};
+        BenchmarkPlan plan = BenchCli.resolvePlan(args, BenchmarkScenario.PAYLOAD_HEAVY_JSON);
+        assertEquals("zgc-test", plan.configs.get(0).name());
+    }
+
+    @Test
+    void resolvePlan_customDockerImage() {
+        String[] args = {"--jvmArgs", "-Xmx2g", "--dockerImage", "myapp:latest"};
+        BenchmarkPlan plan = BenchCli.resolvePlan(args, BenchmarkScenario.PAYLOAD_HEAVY_JSON);
+        assertEquals("myapp:latest", plan.configs.get(0).dockerImage());
+    }
+
+    @Test
+    void resolvePlan_allCustomOptions() {
+        String[] args = {
+                "--jvmArgs", "-XX:+UseZGC -Xmx2g",
+                "--configName", "zgc-big-heap",
+                "--dockerImage", "tfl4-ek-bench:custom"
+        };
+        BenchmarkPlan plan = BenchCli.resolvePlan(args, BenchmarkScenario.PAYLOAD_HEAVY_JSON);
+        assertEquals(1, plan.configs.size());
+        BenchmarkConfig cfg = plan.configs.get(0);
+        assertEquals("zgc-big-heap", cfg.name());
+        assertEquals("tfl4-ek-bench:custom", cfg.dockerImage());
+        assertEquals(List.of("-XX:+UseZGC", "-Xmx2g"), cfg.jvmArgs());
+    }
+
+    // ==================== resolvePlan — EBICS image auto-selection ====================
+
+    @Test
+    void resolvePlan_ebicsUpload_defaultPlan_usesEkImage() {
+        String[] args = {};
+        BenchmarkPlan plan = BenchCli.resolvePlan(args, BenchmarkScenario.EBICS_UPLOAD);
+        // Alle Configs muessen auf das EK-Image umgestellt sein
+        for (BenchmarkConfig cfg : plan.configs) {
+            assertEquals("tfl4-ek-bench:jvm-ek", cfg.dockerImage(),
+                    "EBICS scenario should auto-select jvm-ek image for config '" + cfg.name() + "'");
+        }
+    }
+
+    @Test
+    void resolvePlan_ebicsUpload_withJvmArgs_usesEkImage() {
+        String[] args = {"--jvmArgs", "-XX:+UseZGC"};
+        BenchmarkPlan plan = BenchCli.resolvePlan(args, BenchmarkScenario.EBICS_UPLOAD);
+        assertEquals(1, plan.configs.size());
+        assertEquals("tfl4-ek-bench:jvm-ek", plan.configs.get(0).dockerImage());
+    }
+
+    @Test
+    void resolvePlan_ebics_explicitDockerImage_overridesDefault() {
+        String[] args = {"--jvmArgs", "-Xmx1g", "--dockerImage", "my-custom:ebics"};
+        BenchmarkPlan plan = BenchCli.resolvePlan(args, BenchmarkScenario.EBICS_UPLOAD);
+        assertEquals("my-custom:ebics", plan.configs.get(0).dockerImage(),
+                "Explicit --dockerImage should override EBICS auto-selection");
+    }
+
+    @Test
+    void resolvePlan_nonEbics_defaultPlan_usesStandardImage() {
+        String[] args = {};
+        BenchmarkPlan plan = BenchCli.resolvePlan(args, BenchmarkScenario.ALLOC_HEAVY_OK);
+        for (BenchmarkConfig cfg : plan.configs) {
+            assertEquals("tfl4-ek-bench:jvm", cfg.dockerImage());
+        }
+    }
+
+    // ==================== hasFlag ====================
+
+    @Test
+    void hasFlag_present_returnsTrue() {
+        String[] args = {"--merge-excel", "--scenario", "json"};
+        assertTrue(BenchCli.hasFlag(args, "--merge-excel"));
+    }
+
+    @Test
+    void hasFlag_notPresent_returnsFalse() {
+        String[] args = {"--scenario", "json"};
+        assertFalse(BenchCli.hasFlag(args, "--merge-excel"));
+    }
+
+    @Test
+    void hasFlag_emptyArgs_returnsFalse() {
+        assertFalse(BenchCli.hasFlag(new String[]{}, "--merge-excel"));
+    }
+
+    @Test
+    void hasFlag_partialMatch_returnsFalse() {
+        String[] args = {"--merge-excel-extra"};
+        assertFalse(BenchCli.hasFlag(args, "--merge-excel"));
+    }
+
+    @Test
+    void hasFlag_flagAtEnd() {
+        String[] args = {"--scenario", "json", "--merge-excel"};
+        assertTrue(BenchCli.hasFlag(args, "--merge-excel"));
     }
 }

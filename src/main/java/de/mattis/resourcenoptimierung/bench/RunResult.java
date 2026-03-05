@@ -24,7 +24,7 @@ import java.util.List;
  * @param effectiveJavaToolOptions effektiv gesetzte JVM-Flags (JAVA_TOOL_OPTIONS), null bei native
  * @param readinessCheckUsed welcher Readiness-Check erfolgreich war
  * @param startupLogSnippet optionaler Log-Auszug direkt nach dem Start (Debug/Proof), kann null sein
- * @param scenario Benchmark-Szenario (json, alloc, ebics-upload, ebics-download)
+ * @param scenario Benchmark-Szenario (json, alloc, ebics-upload)
  * @param workloadN Workload-Groesse n
  * @param workloadPath verwendeter Pfad inkl. Query (z.B. "/json?n=200000")
  * @param measurementProfile verwendetes Messprofil (Warmup/Messung/Concurrency/Sleep)
