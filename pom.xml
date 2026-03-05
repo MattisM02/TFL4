@@ -28,6 +28,9 @@
     </scm>
     <properties>
         <java.version>17</java.version>
+        <!-- Default: Docker-E2E-Tests ausschliessen. Mit -DincludeDocker aktivieren. -->
+        <surefire.excludedGroups>docker</surefire.excludedGroups>
+        <surefire.groups />
     </properties>
     <dependencies>
         <dependency>
@@ -312,6 +315,23 @@
                 </configuration>
             </plugin>
             <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!-- Exclude EK system-scope JARs that conflict with Spring Boot logging -->
+                    <classpathDependencyExcludes>
+                        <classpathDependencyExclude>de.travic:log4j-slf4j-impl</classpathDependencyExclude>
+                        <classpathDependencyExclude>de.travic:slf4j-api</classpathDependencyExclude>
+                        <classpathDependencyExclude>de.travic:log4j-jcl</classpathDependencyExclude>
+                    </classpathDependencyExcludes>
+                    <!-- Docker-E2E-Tests nur mit -DincludeDocker ausfuehren:
+                         mvn test -DincludeDocker    (nur Docker-Tests)
+                         mvn test                    (alle ausser Docker) -->
+                    <excludedGroups>${surefire.excludedGroups}</excludedGroups>
+                    <groups>${surefire.groups}</groups>
+                </configuration>
+            </plugin>
+            <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>exec-maven-plugin</artifactId>
                 <version>3.6.3</version>
@@ -321,5 +341,21 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!-- Aktiviert Docker-E2E-Tests: mvn test -DincludeDocker -->
+        <profile>
+            <id>docker-tests</id>
+            <activation>
+                <property>
+                    <name>includeDocker</name>
+                </property>
+            </activation>
+            <properties>
+                <surefire.excludedGroups />
+                <surefire.groups>docker</surefire.groups>
+            </properties>
+        </profile>
+    </profiles>
 
 </project>

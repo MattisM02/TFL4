@@ -12,15 +12,15 @@ import java.util.List;
 /**
  * Exportiert Benchmark-Ergebnisse (RunResult) in Dateien.
  *
- * Die Konsole ist gut für einen schnellen Überblick.
- * Für spätere Auswertung (z.B. Excel oder Skripte) werden strukturierte Exporte benötigt.
+ * Die Konsole ist gut fuer einen schnellen Ueberblick.
+ * Fuer spaetere Auswertung (z.B. Excel oder Skripte) werden strukturierte Exporte benoetigt.
  *
- * Unterstützte Formate:
+ * Unterstuetzte Formate:
  * - CSV: kompakte Kennzahlen pro Run
- * - JSON: enthält zusätzlich Rohdaten wie die einzelnen Latenzen
+ * - JSON: enthaelt zusaetzlich Rohdaten wie die einzelnen Latenzen
  *
  * Das JSON wird bewusst ohne externe Bibliotheken erzeugt, damit der Bench keine
- * zusätzlichen Dependencies benötigt.
+ * zusaetzlichen Dependencies benoetigt.
  */
 public final class ResultExporters {
 
@@ -34,19 +34,20 @@ public final class ResultExporters {
      *
      * @param results Run-Ergebnisse
      * @param path Zielpfad der CSV-Datei
-     * @throws IOException wenn Schreiben fehlschlägt
+     * @throws IOException wenn Schreiben fehlschlaegt
      */
     public static void writeCsv(List<RunResult> results, Path path) throws IOException {
         try (BufferedWriter w = Files.newBufferedWriter(path, StandardCharsets.UTF_8)) {
 
-            // scenario + workloadN + workloadPath + flags + readiness check
-            w.write("""
-                    scenario,workloadN,workloadPath,configName,dockerImage,effectiveJavaToolOptions,readinessCheckUsed,readinessMs,firstSeconds,latencyCount,latencyMean,latencyP50,latencyP95,latencyP99
-                    """.trim());
+            w.write("scenario,workloadN,workloadPath,configName,dockerImage,effectiveJavaToolOptions," +
+                    "readinessCheckUsed,readinessMs,firstSeconds," +
+                    "latencyCount,latencyMean,latencyP50,latencyP95,latencyP99," +
+                    "totalMeasureTimeSeconds,throughputReqPerSec," +
+                    "warmupRequests,measureRequests,concurrency,sleepBetweenRequestsMs");
             w.newLine();
 
             for (RunResult r : results) {
-                // Latenzen sortieren (Voraussetzung für Perzentile)
+                // Latenzen sortieren (Voraussetzung fuer Perzentile)
                 List<Double> lats = new ArrayList<>(r.latenciesSeconds());
                 lats.sort(Double::compareTo);
 
@@ -73,7 +74,18 @@ public final class ResultExporters {
                 w.write(Double.toString(mean)); w.write(",");
                 w.write(Double.toString(percentile(lats, 0.50))); w.write(",");
                 w.write(Double.toString(percentile(lats, 0.95))); w.write(",");
-                w.write(Double.toString(percentile(lats, 0.99)));
+                w.write(Double.toString(percentile(lats, 0.99))); w.write(",");
+
+                // --- Gesamtzeit + Durchsatz ---
+                w.write(Double.toString(r.totalMeasureTimeSeconds())); w.write(",");
+                w.write(Double.toString(r.throughputReqPerSec())); w.write(",");
+
+                // --- Messprofil ---
+                MeasurementProfile p = r.measurementProfile();
+                w.write(Integer.toString(p.warmupRequests())); w.write(",");
+                w.write(Integer.toString(p.measureRequests())); w.write(",");
+                w.write(Integer.toString(p.concurrency())); w.write(",");
+                w.write(Long.toString(p.sleepBetweenRequestsMs()));
                 w.newLine();
             }
         }
@@ -82,12 +94,12 @@ public final class ResultExporters {
     /**
      * Schreibt die Benchmark-Ergebnisse als JSON-Datei.
      *
-     * Der Export enthält zusätzlich zu Metadaten und Timings auch die Rohdaten
-     * der gemessenen Latenzen.
+     * Der Export enthaelt zusaetzlich zu Metadaten und Timings auch die Rohdaten
+     * der gemessenen Latenzen sowie Gesamtzeit und Durchsatz.
      *
      * @param results Run-Ergebnisse
      * @param path Zielpfad der JSON-Datei
-     * @throws IOException wenn Schreiben fehlschlägt
+     * @throws IOException wenn Schreiben fehlschlaegt
      */
     public static void writeJson(List<RunResult> results, Path path) throws IOException {
         StringBuilder sb = new StringBuilder();
@@ -111,7 +123,20 @@ public final class ResultExporters {
             // timings + raw latencies
             sb.append("\"readinessMs\":").append(r.readinessMs()).append(",");
             sb.append("\"firstSeconds\":").append(r.firstSeconds()).append(",");
-            sb.append("\"jsonLatenciesSeconds\":").append(array(r.latenciesSeconds()));
+            sb.append("\"latenciesSeconds\":").append(array(r.latenciesSeconds())).append(",");
+
+            // Gesamtzeit + Durchsatz
+            sb.append("\"totalMeasureTimeSeconds\":").append(r.totalMeasureTimeSeconds()).append(",");
+            sb.append("\"throughputReqPerSec\":").append(r.throughputReqPerSec()).append(",");
+
+            // Messprofil
+            MeasurementProfile p = r.measurementProfile();
+            sb.append("\"measurementProfile\":{");
+            sb.append("\"warmupRequests\":").append(p.warmupRequests()).append(",");
+            sb.append("\"measureRequests\":").append(p.measureRequests()).append(",");
+            sb.append("\"concurrency\":").append(p.concurrency()).append(",");
+            sb.append("\"sleepBetweenRequestsMs\":").append(p.sleepBetweenRequestsMs());
+            sb.append("}");
 
             sb.append("}");
         }
@@ -136,7 +161,7 @@ public final class ResultExporters {
     }
 
     /**
-     * Escaped einen String für CSV.
+     * Escaped einen String fuer CSV.
      *
      * @param s Roh-String
      * @return CSV-sicherer String
@@ -166,7 +191,7 @@ public final class ResultExporters {
     }
 
     /**
-     * Escaped einen String für JSON (minimal).
+     * Escaped einen String fuer JSON (minimal).
      *
      * @param s Roh-String
      * @return JSON-Stringliteral oder null
@@ -177,10 +202,10 @@ public final class ResultExporters {
     }
 
     /**
-     * Normalisiert JVM-Flags für den Export.
+     * Normalisiert JVM-Flags fuer den Export.
      *
      * @param flags effektive Flags (z.B. JAVA_TOOL_OPTIONS), kann null sein
-     * @return normalisierte Darstellung (null für native, leer für keine Flags)
+     * @return normalisierte Darstellung (null fuer native, leer fuer keine Flags)
      */
     private static String normalizeFlags(String flags) {
         if (flags == null) return null;     // native

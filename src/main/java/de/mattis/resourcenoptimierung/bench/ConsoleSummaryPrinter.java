@@ -10,14 +10,15 @@ import java.util.Map;
 /**
  * Gibt eine kompakte Zusammenfassung der Benchmark-Ergebnisse auf der Konsole aus.
  *
- * Der ConsoleSummaryPrinter ist nur für die Darstellung zuständig.
- * Er führt keine Benchmarks aus und verändert keine Daten.
+ * Der ConsoleSummaryPrinter ist nur fuer die Darstellung zustaendig.
+ * Er fuehrt keine Benchmarks aus und veraendert keine Daten.
  *
  * Was ausgegeben wird:
  * - Gruppierung nach BenchmarkScenario
  * - pro Szenario: Readiness und First-Request (min/avg/max)
- * - pro Szenario: Latenzen als p50/p95/p99 über alle Requests
- * - pro Run: median/p95/mean, Docker-Stats (IDLE/LOAD/POST), Flags und Workload-Pfad
+ * - pro Szenario: Latenzen als p50/p95/p99 ueber alle Requests
+ * - pro Szenario: Durchsatz (Throughput) in req/s
+ * - pro Run: median/p95/mean, totalTime, throughput, Docker-Stats (IDLE/LOAD/POST), Flags und Workload-Pfad
  *
  * Die Runs werden nach p95-Latenz sortiert, damit langsame Konfigurationen sofort auffallen.
  */
@@ -28,7 +29,7 @@ public final class ConsoleSummaryPrinter {
     /**
      * Gibt alle Ergebnisse auf der Konsole aus.
      *
-     * @param results Liste der RunResult-Einträge
+     * @param results Liste der RunResult-Eintraege
      */
     public static void print(List<RunResult> results) {
         System.out.println("=== Benchmark Summary ===");
@@ -58,12 +59,14 @@ public final class ConsoleSummaryPrinter {
     }
 
     /**
-     * Gibt eine Zusammenfassung für ein Szenario aus.
+     * Gibt eine Zusammenfassung fuer ein Szenario aus.
      *
      * Kennzahlen:
      * - Readiness (ms): min/avg/max
      * - First request (s): min/avg/max
-     * - Latenzen (s): p50/p95/p99 über alle Requests aller Runs
+     * - Latenzen (s): p50/p95/p99 ueber alle Requests aller Runs
+     * - Throughput (req/s): min/avg/max ueber alle Runs
+     * - Messprofil: Warmup/Messung/Concurrency/Sleep
      *
      * @param group Runs eines Szenarios
      */
@@ -78,6 +81,11 @@ public final class ConsoleSummaryPrinter {
                 .mapToDouble(RunResult::firstSeconds)
                 .summaryStatistics();
 
+        // Throughput
+        DoubleSummaryStatistics throughputStats = group.stream()
+                .mapToDouble(RunResult::throughputReqPerSec)
+                .summaryStatistics();
+
         // All latencies combined
         List<Double> allLatencies = new ArrayList<>();
         for (RunResult r : group) {
@@ -86,6 +94,12 @@ public final class ConsoleSummaryPrinter {
         allLatencies.sort(Double::compareTo);
 
         System.out.println("Runs: " + group.size());
+
+        // Messprofil aus dem ersten Run (alle Runs im gleichen Szenario verwenden dasselbe Profil)
+        MeasurementProfile profile = group.get(0).measurementProfile();
+        System.out.printf("Profile: warmup=%d measure=%d concurrency=%d sleepMs=%d%n",
+                profile.warmupRequests(), profile.measureRequests(),
+                profile.concurrency(), profile.sleepBetweenRequestsMs());
 
         System.out.printf("Readiness (ms)   min/avg/max: %.0f / %.1f / %.0f%n",
                 readinessStats.getMin(),
@@ -105,6 +119,11 @@ public final class ConsoleSummaryPrinter {
                     allLatencies.size()
             );
         }
+
+        System.out.printf("Throughput (req/s) min/avg/max: %.1f / %.1f / %.1f%n",
+                throughputStats.getMin(),
+                throughputStats.getAverage(),
+                throughputStats.getMax());
     }
 
     /**
@@ -113,14 +132,15 @@ public final class ConsoleSummaryPrinter {
      * Pro Run:
      * - readiness, first request
      * - median/p95/mean der Latenzen
-     * - Docker-Stats für IDLE/LOAD/POST (falls vorhanden)
+     * - totalTime und throughput
+     * - Docker-Stats fuer IDLE/LOAD/POST (falls vorhanden)
      * - Flags und Workload-Pfad
      *
      * @param group Runs eines Szenarios
      */
     private static void printPerRun(List<RunResult> group) {
         System.out.println();
-        System.out.println("Per run (median/p95/mean + docker mem end + flags):");
+        System.out.println("Per run (median/p95/mean + throughput + docker mem):");
 
         // nach p95 sortieren
         group.stream()
@@ -148,6 +168,10 @@ public final class ConsoleSummaryPrinter {
                             r.latenciesSeconds().size(),
                             r.readinessCheckUsed()
                     );
+
+                    System.out.printf("   totalTime=%.3fs  throughput=%.1f req/s%n",
+                            r.totalMeasureTimeSeconds(),
+                            r.throughputReqPerSec());
 
                     DockerPhaseStats idle = phaseStats(r.dockerIdleSamples());
                     DockerPhaseStats load = phaseStats(r.dockerLoadSamples());
@@ -180,7 +204,7 @@ public final class ConsoleSummaryPrinter {
 
     /**
      * Liefert die p95-Latenz eines Runs.
-     * Wird für die Sortierung der Ausgabe genutzt.
+     * Wird fuer die Sortierung der Ausgabe genutzt.
      *
      * @param r Run-Ergebnis
      * @return p95 in Sekunden oder NaN, wenn keine Daten vorhanden sind
@@ -212,7 +236,7 @@ public final class ConsoleSummaryPrinter {
     }
 
     /**
-     * Formatiert die Flags für die Konsolenausgabe.
+     * Formatiert die Flags fuer die Konsolenausgabe.
      *
      * @param flags effektive JAVA_TOOL_OPTIONS (null bei Native)
      * @return "(native)", "(none)" oder der Flag-String
@@ -224,9 +248,9 @@ public final class ConsoleSummaryPrinter {
     }
 
     /**
-     * Verdichtete Kennzahlen für Docker-Stats einer Phase (IDLE, LOAD, POST).
+     * Verdichtete Kennzahlen fuer Docker-Stats einer Phase (IDLE, LOAD, POST).
      *
-     * Enthält nur die wichtigsten Werte, damit die Konsolenausgabe kompakt bleibt.
+     * Enthaelt nur die wichtigsten Werte, damit die Konsolenausgabe kompakt bleibt.
      *
      * @param cpuAvg durchschnittliche CPU-Auslastung in Prozent
      * @param memPercAvg durchschnittliche Speicherauslastung in Prozent
@@ -243,8 +267,8 @@ public final class ConsoleSummaryPrinter {
     /**
      * Verdichtet mehrere DockerStatSample zu einer kompakten Zusammenfassung.
      *
-     * Es werden Mittelwerte für CPU und Memory sowie das Memory-Maximum berechnet.
-     * Zusätzlich wird der Rohwert "usage / limit" für das Memory-Maximum gespeichert.
+     * Es werden Mittelwerte fuer CPU und Memory sowie das Memory-Maximum berechnet.
+     * Zusaetzlich wird der Rohwert "usage / limit" fuer das Memory-Maximum gespeichert.
      *
      * @param samples Docker-Stat-Samples einer Phase
      * @return Zusammenfassung oder null, wenn keine Samples vorhanden sind

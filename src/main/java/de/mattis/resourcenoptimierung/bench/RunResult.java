@@ -5,28 +5,31 @@ import java.util.List;
 /**
  * Ergebnis eines einzelnen Benchmark-Runs.
  *
- * Ein RunResult gehört zu:
+ * Ein RunResult gehoert zu:
  * - genau einer BenchmarkConfig,
  * - genau einem BenchmarkScenario,
- * - einer festen Workload-Größe n.
+ * - einer festen Workload-Groesse n.
  *
- * Das Objekt enthält Metadaten (welche Konfiguration wurde getestet),
- * Timing-Metriken (Readiness, First Request, Latenzen) und optionale
- * Docker-Stat-Samples für CPU/Memory.
+ * Das Objekt enthaelt Metadaten (welche Konfiguration wurde getestet),
+ * Timing-Metriken (Readiness, First Request, Latenzen, Gesamtzeit, Durchsatz)
+ * und optionale Docker-Stat-Samples fuer CPU/Memory.
  *
  * @param configName Name der Konfiguration (z.B. "baseline", "coops-off")
  * @param dockerImage verwendetes Docker-Image
  * @param readinessMs Zeit bis "ready" in Millisekunden
  * @param firstSeconds Dauer des ersten Requests nach Readiness in Sekunden
  * @param latenciesSeconds gemessene Request-Latenzen in Sekunden
+ * @param totalMeasureTimeSeconds Gesamtdauer der Messphase (alle measureRequests) in Sekunden
+ * @param throughputReqPerSec Durchsatz: measureRequests / totalMeasureTimeSeconds
  * @param effectiveJavaToolOptions effektiv gesetzte JVM-Flags (JAVA_TOOL_OPTIONS), null bei native
  * @param readinessCheckUsed welcher Readiness-Check erfolgreich war
  * @param startupLogSnippet optionaler Log-Auszug direkt nach dem Start (Debug/Proof), kann null sein
- * @param scenario Benchmark-Szenario (json oder alloc)
- * @param workloadN Workload-Größe n
+ * @param scenario Benchmark-Szenario (json, alloc, ebics-upload, ebics-download)
+ * @param workloadN Workload-Groesse n
  * @param workloadPath verwendeter Pfad inkl. Query (z.B. "/json?n=200000")
+ * @param measurementProfile verwendetes Messprofil (Warmup/Messung/Concurrency/Sleep)
  * @param dockerIdleSamples Docker-Stats kurz nach Readiness (vor Last)
- * @param dockerLoadSamples Docker-Stats während der Lastphase
+ * @param dockerLoadSamples Docker-Stats waehrend der Lastphase
  * @param dockerPostSamples Docker-Stats nach der Lastphase
  */
 public record RunResult(
@@ -35,13 +38,15 @@ public record RunResult(
         long readinessMs,
         double firstSeconds,
         List<Double> latenciesSeconds,
+        double totalMeasureTimeSeconds,
+        double throughputReqPerSec,
         String effectiveJavaToolOptions,
         ReadinessCheckUsed readinessCheckUsed,
         String startupLogSnippet,
         BenchmarkScenario scenario,
         int workloadN,
         String workloadPath,
+        MeasurementProfile measurementProfile,
         List<DockerStatSample> dockerIdleSamples,
         List<DockerStatSample> dockerLoadSamples,
         List<DockerStatSample> dockerPostSamples) { }
-
