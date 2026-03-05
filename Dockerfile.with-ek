@@ -1,0 +1,17 @@
+FROM eclipse-temurin:21-jre
+
+WORKDIR /app
+
+COPY target/jvm-optim-demo-0.0.1-SNAPSHOT.jar app.jar
+
+# EBICS config, PKCS#12 keys, and test data
+COPY ebics/ebicsclient.config ebics/ebicsclient_a00.p12 ebics/ebicsclient_e00.p12 ebics/ebicsclient_x00.p12 /app/ebics/
+
+# Test file is generated at runtime by EkController.createTestFile()
+# (realistic pain.001.003.03 SEPA Credit Transfer XML)
+
+ENV JAVA_TOOL_OPTIONS="-Xms256m -Xmx512m"
+
+EXPOSE 8080
+
+ENTRYPOINT ["java", "-jar", "app.jar"]

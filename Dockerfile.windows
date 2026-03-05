@@ -1,0 +1,32 @@
+# Windows Server Core based image with Java 21
+# Note: Requires Windows Containers (docker run --isolation=process)
+FROM mcr.microsoft.com/windows/servercore:ltsc2022
+
+# Install Java 21
+RUN powershell -Command \
+    $ErrorActionPreference = 'Stop'; \
+    Invoke-WebRequest -Uri 'https://download.oracle.com/java/21/latest/jdk-21_windows-x64_bin.zip' -OutFile 'c:\jdk.zip'; \
+    Expand-Archive -Path 'c:\jdk.zip' -DestinationPath 'C:\'; \
+    Remove-Item 'c:\jdk.zip'; \
+    [Environment]::SetEnvironmentVariable('JAVA_HOME', 'C:\jdk-21', 'Machine'); \
+    [Environment]::SetEnvironmentVariable('PATH', \"$env:PATH;C:\jdk-21\bin\", 'Machine')
+
+WORKDIR /app
+
+# Copy EK libraries
+COPY lib/ /app/lib/
+COPY ebicsclient.config /app/ebicsclient.config
+
+# Copy application jar
+COPY target/jvm-optim-demo-0.0.1-SNAPSHOT.jar app.jar
+
+# Set environment variables
+ENV JAVA_HOME=C:\\jdk-21
+ENV PATH="${PATH};${JAVA_HOME}\\bin"
+
+# Set EBICS configuration path
+ENV EBICS_CONFIG=/app/ebicsclient.config
+
+EXPOSE 8080
+
+ENTRYPOINT ["java", "-jar", "-Djava.library.path=C:\\app\\lib", "app.jar"]
