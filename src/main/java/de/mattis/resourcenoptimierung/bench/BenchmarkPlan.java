@@ -45,8 +45,8 @@ public class BenchmarkPlan {
      * @return Benchmark-Plan mit Standard-Konfigurationen
      */
     public static BenchmarkPlan defaultPlan() {
-        String jvmImage = "jvm-optim-demo:jvm";
-        String nativeImage = "jvm-optim-demo:native";
+        String jvmImage = "tfl4-ek-bench:jvm";
+        String nativeImage = "tfl4-ek-bench:native";
 
         return new BenchmarkPlan(List.of(
                 new BenchmarkConfig(
@@ -58,17 +58,9 @@ public class BenchmarkPlan {
                         "coops-off",
                         jvmImage,
                         List.of("-XX:-UseCompressedOops")
-                ),
-                new BenchmarkConfig(
-                        "coh-on",
-                        jvmImage,
-                        List.of("-XX:+UnlockExperimentalVMOptions", "-XX:+UseCompactObjectHeaders")
-                ),
-                new BenchmarkConfig(
-                        "native",
-                        nativeImage,
-                        List.of() // wird später ignoriert
                 )
+                // coh-on disabled — UseCompactObjectHeaders requires JDK 24+, container uses Temurin 21
+                // native image disabled — no tfl4-ek-bench:native built yet
         ));
     }
 }

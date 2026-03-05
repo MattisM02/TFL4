@@ -90,9 +90,11 @@ public class BenchCli {
 
         System.out.println();
         System.out.println("Choose workload scenario:");
-        System.out.println("  1) /json  (payload-heavy, default n=200000)");
-        System.out.println("  2) /alloc (alloc-heavy,  default n=10000000)");
-        System.out.print("Enter 1 or 2 (default: 1): ");
+        System.out.println("  1) /json       (payload-heavy, default n=200000)");
+        System.out.println("  2) /alloc      (alloc-heavy,  default n=10000000)");
+        System.out.println("  3) /ebics/upload  (EBICS upload, default n=10)");
+        System.out.println("  4) /ebics/download (EBICS download, default n=10)");
+        System.out.print("Enter 1-4 (default: 1): ");
 
         String line = br.readLine();
         if (line == null || line.isBlank() || line.trim().equals("1")) {
@@ -100,6 +102,12 @@ public class BenchCli {
         }
         if (line.trim().equals("2")) {
             return BenchmarkScenario.ALLOC_HEAVY_OK;
+        }
+        if (line.trim().equals("3")) {
+            return BenchmarkScenario.EBICS_UPLOAD;
+        }
+        if (line.trim().equals("4")) {
+            return BenchmarkScenario.EBICS_DOWNLOAD;
         }
 
         System.out.println("Invalid input, using default: /json");
@@ -119,7 +127,11 @@ public class BenchCli {
         if (raw != null) return Integer.parseInt(raw);
 
         // Defaults pro Scenario
-        return (scenario == BenchmarkScenario.PAYLOAD_HEAVY_JSON) ? 200_000 : 10_000_000;
+        return switch (scenario) {
+            case PAYLOAD_HEAVY_JSON -> 200_000;
+            case ALLOC_HEAVY_OK -> 10_000_000;
+            case EBICS_UPLOAD, EBICS_DOWNLOAD -> 10;
+        };
     }
 
     /**
@@ -132,7 +144,9 @@ public class BenchCli {
         return switch (raw.toLowerCase()) {
             case "payload", "payload-heavy", "payload-heavy-json", "json", "/json" -> BenchmarkScenario.PAYLOAD_HEAVY_JSON;
             case "alloc", "alloc-heavy", "alloc-heavy-ok", "ok", "/alloc" -> BenchmarkScenario.ALLOC_HEAVY_OK;
-            default -> throw new IllegalArgumentException("Unknown --scenario: " + raw + " (use: json|alloc)");
+            case "ebics", "ebics-upload", "upload", "/ebics/upload" -> BenchmarkScenario.EBICS_UPLOAD;
+            case "ebics-download", "download", "/ebics/download" -> BenchmarkScenario.EBICS_DOWNLOAD;
+            default -> throw new IllegalArgumentException("Unknown --scenario: " + raw + " (use: json|alloc|ebics-upload|ebics-download)");
         };
     }
 

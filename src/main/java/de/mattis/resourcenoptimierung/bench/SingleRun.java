@@ -93,6 +93,8 @@ public class SingleRun {
         return switch (scenario) {
             case PAYLOAD_HEAVY_JSON -> "/json?n=" + workloadN;
             case ALLOC_HEAVY_OK -> "/alloc?n=" + workloadN;
+            case EBICS_UPLOAD -> "/ebics/upload?n=" + workloadN;
+            case EBICS_DOWNLOAD -> "/ebics/download?n=" + workloadN;
         };
     }
 
@@ -101,6 +103,7 @@ public class SingleRun {
      */
     private final HttpClient http = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(2))
+            .proxy(java.net.ProxySelector.of(null))
             .build();
 
 
@@ -259,10 +262,7 @@ public class SingleRun {
 
         // JAVA_TOOL_OPTIONS setzen (nur für JVM, nicht für native)
         if (!cfg.isNative()) {
-            String fromCfg = (cfg.jvmArgs() == null) ? "" : String.join(" ", cfg.jvmArgs()).trim();
-            String fromEffective = (effectiveJavaToolOptions == null) ? "" : effectiveJavaToolOptions.trim();
-
-            String javaToolOptions = String.join(" ", fromCfg, fromEffective).trim();
+            String javaToolOptions = (effectiveJavaToolOptions == null) ? "" : effectiveJavaToolOptions.trim();
             if (!javaToolOptions.isBlank()) {
                 cmd.add("-e");
                 cmd.add("JAVA_TOOL_OPTIONS=" + javaToolOptions);

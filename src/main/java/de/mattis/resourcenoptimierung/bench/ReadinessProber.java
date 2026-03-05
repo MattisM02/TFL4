@@ -29,6 +29,7 @@ public final class ReadinessProber {
     public ReadinessProber() {
         this.http = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(2))
+                .proxy(java.net.ProxySelector.of(null))
                 .build();
     }
 

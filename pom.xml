@@ -27,7 +27,7 @@
         <url/>
     </scm>
     <properties>
-        <java.version>21</java.version>
+        <java.version>17</java.version>
     </properties>
     <dependencies>
         <dependency>
@@ -37,6 +37,234 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webmvc</artifactId>
+        </dependency>
+
+        <!-- EBICS Kernel Dependencies (system scope - local jars) -->
+        <dependency>
+            <groupId>de.travic</groupId>
+            <artifactId>ebicskernel</artifactId>
+            <version>4.0.9</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/ebicskernel.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>de.travic</groupId>
+            <artifactId>ebicscommon</artifactId>
+            <version>4.0.9</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/ebicscommon.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>de.travic</groupId>
+            <artifactId>ebics_xml</artifactId>
+            <version>4.0.9</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/ebics_xml.jar</systemPath>
+        </dependency>
+
+        <!-- EK transitive dependencies (system scope) -->
+        <dependency>
+            <groupId>de.travic</groupId>
+            <artifactId>commons-codec</artifactId>
+            <version>1.19.0</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/commons-codec-1.19.0.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>de.travic</groupId>
+            <artifactId>commons-lang3</artifactId>
+            <version>3.18.0</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/commons-lang3-3.18.0.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>de.travic</groupId>
+            <artifactId>commons-logging</artifactId>
+            <version>1.1.3</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/commons-logging-1.1.3.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>de.travic</groupId>
+            <artifactId>gson</artifactId>
+            <version>2.9.1</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/gson-2.9.1.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>de.travic</groupId>
+            <artifactId>httpclient</artifactId>
+            <version>4.5.14</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/httpclient-4.5.14.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>de.travic</groupId>
+            <artifactId>httpcore</artifactId>
+            <version>4.4.16</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/httpcore-4.4.16.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>de.travic</groupId>
+            <artifactId>iaik-jce-full-unlimited</artifactId>
+            <version>5.63</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/iaik-jce-full-unlimited-5.63.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>de.travic</groupId>
+            <artifactId>jakarta.activation-api</artifactId>
+            <version>2.1.0</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/jakarta.activation-api-2.1.0.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>de.travic</groupId>
+            <artifactId>jakarta.xml.bind-api</artifactId>
+            <version>4.0.0</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/jakarta.xml.bind-api-4.0.0.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>de.travic</groupId>
+            <artifactId>jaxb-core</artifactId>
+            <version>4.0.0</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/jaxb-core-4.0.0.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>de.travic</groupId>
+            <artifactId>jaxb-impl</artifactId>
+            <version>4.0.0</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/jaxb-impl-4.0.0.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>de.travic</groupId>
+            <artifactId>jcifs</artifactId>
+            <version>1.3.18</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/jcifs-1.3.18-kohsuke-1.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>de.travic</groupId>
+            <artifactId>log4j-api</artifactId>
+            <version>2.25.2</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/log4j-api-2.25.2.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>de.travic</groupId>
+            <artifactId>log4j-core</artifactId>
+            <version>2.25.2</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/log4j-core-2.25.2.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>de.travic</groupId>
+            <artifactId>log4j-jcl</artifactId>
+            <version>2.25.2</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/log4j-jcl-2.25.2.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>de.travic</groupId>
+            <artifactId>log4j-slf4j-impl</artifactId>
+            <version>2.25.2</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/log4j-slf4j-impl-2.25.2.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>de.travic</groupId>
+            <artifactId>netty-buffer</artifactId>
+            <version>4.1.128.Final</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/netty-buffer-4.1.128.Final.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>de.travic</groupId>
+            <artifactId>netty-codec</artifactId>
+            <version>4.1.128.Final</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/netty-codec-4.1.128.Final.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>de.travic</groupId>
+            <artifactId>netty-codec-http</artifactId>
+            <version>4.1.128.Final</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/netty-codec-http-4.1.128.Final.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>de.travic</groupId>
+            <artifactId>netty-codec-socks</artifactId>
+            <version>4.1.128.Final</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/netty-codec-socks-4.1.128.Final.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>de.travic</groupId>
+            <artifactId>netty-common</artifactId>
+            <version>4.1.128.Final</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/netty-common-4.1.128.Final.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>de.travic</groupId>
+            <artifactId>netty-handler</artifactId>
+            <version>4.1.128.Final</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/netty-handler-4.1.128.Final.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>de.travic</groupId>
+            <artifactId>netty-handler-proxy</artifactId>
+            <version>4.1.128.Final</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/netty-handler-proxy-4.1.128.Final.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>de.travic</groupId>
+            <artifactId>netty-resolver</artifactId>
+            <version>4.1.128.Final</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/netty-resolver-4.1.128.Final.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>de.travic</groupId>
+            <artifactId>netty-transport</artifactId>
+            <version>4.1.128.Final</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/netty-transport-4.1.128.Final.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>de.travic</groupId>
+            <artifactId>netty-transport-native-unix-common</artifactId>
+            <version>4.1.128.Final</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/netty-transport-native-unix-common-4.1.128.Final.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>de.travic</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>1.7.36</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/slf4j-api-1.7.36.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>de.travic</groupId>
+            <artifactId>xmlsec</artifactId>
+            <version>3.0.4</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/xmlsec-3.0.4.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>de.travic</groupId>
+            <artifactId>angus-activation</artifactId>
+            <version>1.0.0</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/angus-activation-1.0.0.jar</systemPath>
         </dependency>
 
         <dependency>
@@ -62,6 +290,26 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <includeSystemScope>true</includeSystemScope>
+                    <excludes>
+                        <!-- EK ships log4j-slf4j-impl which conflicts with Spring Boot's log4j-to-slf4j -->
+                        <exclude>
+                            <groupId>de.travic</groupId>
+                            <artifactId>log4j-slf4j-impl</artifactId>
+                        </exclude>
+                        <!-- EK ships slf4j-api 1.7 which conflicts with Spring Boot's slf4j-api 2.x -->
+                        <exclude>
+                            <groupId>de.travic</groupId>
+                            <artifactId>slf4j-api</artifactId>
+                        </exclude>
+                        <!-- EK ships log4j-jcl which conflicts with Spring Boot's commons-logging bridge -->
+                        <exclude>
+                            <groupId>de.travic</groupId>
+                            <artifactId>log4j-jcl</artifactId>
+                        </exclude>
+                    </excludes>
+                </configuration>
             </plugin>
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
