@@ -24,7 +24,7 @@ Besteht aus:
 ./mvnw clean package -DskipTests          # JAR bauen
 docker build -t tfl4-ek-bench:jvm .       # Docker-Image bauen (Standard)
 docker build -t tfl4-ek-bench:jvm-ek -f Dockerfile.with-ek .  # Docker-Image mit EBICS
-./mvnw test                                # 165 Unit Tests
+./mvnw test                                # 167 Unit Tests
 ./mvnw test -DincludeDocker                # 4 Docker-E2E-Tests
 ./mvnw exec:java                           # Benchmark interaktiv starten
 ./mvnw exec:java -Dexec.args="--scenario json --n 200000"  # nicht-interaktiv
@@ -69,18 +69,18 @@ TFL4/
 ├── src/test/java/de/mattis/
 │   ├── jvmoptimdemo/
 │   │   ├── DemoControllerTest.java       # 7 MockMvc-Tests
-│   │   └── EkControllerTest.java         # 12 Tests (MockMvc + maskSensitive)
+│   │   └── EkControllerTest.java         # 10 Tests (MockMvc + maskSensitive)
 │   └── resourcenoptimierung/bench/
-│       ├── BenchCliTest.java             # 48 Tests
+│       ├── BenchCliTest.java             # 49 Tests
 │       ├── BenchmarkConfigTest.java      # 8 Tests
-│       ├── BenchmarkPlanTest.java        # 20 Tests
+│       ├── BenchmarkPlanTest.java        # 22 Tests
 │       ├── MeasurementProfileTest.java   # 11 Tests
 │       ├── DockerStatSampleTest.java     # 8 Tests
 │       ├── RunResultTest.java            # 3 Tests
-│       ├── ConsoleSummaryPrinterTest.java# 11 Tests
+│       ├── ConsoleSummaryPrinterTest.java# 12 Tests
 │       ├── ResultExportersTest.java      # 11 Tests
 │       ├── ExcelExporterTest.java        # 22 Tests
-│       ├── TravicLinkManagerTest.java    # 5 Tests
+│       ├── TravicLinkManagerTest.java    # 4 Tests
 │       └── DockerEndToEndTest.java       # 4 Docker-E2E-Tests (@Tag("docker"))
 │
 ├── lib/                             # EK-JARs (system scope, ~30 JARs + 2 DLLs)
@@ -162,8 +162,8 @@ Bei Fehlern werden ausführliche Diagnostics geloggt (Config-Werte mit maskierte
 4. IDLE docker-stats (3 Snapshots, 1s Intervall)
 5. LOAD docker-stats starten (10 Snapshots parallel zur Messphase)
 6. First Request messen → firstSeconds
-7. Warmup (default 20 Requests)
-8. Messphase (default 100 Requests) → latenciesSeconds[], totalMeasureTimeSeconds, throughputReqPerSec
+7. Warmup (default 200 Requests)
+8. Messphase (default 500 Requests) → latenciesSeconds[], totalMeasureTimeSeconds, throughputReqPerSec
 9. POST docker-stats (3 Snapshots)
 10. Container stoppen + entfernen (bei Fehler: Container bleibt für Inspektion)
 ```
@@ -198,9 +198,9 @@ Swap ist deaktiviert (`--memory-swap 768m` = identisch mit `--memory`), um Kuber
 
 Auch akzeptiert: `payload`, `payload-heavy-json`, `/json`, `ok`, `upload`, `ebics`, etc.
 
-### Standard-Plan (10 Konfigurationen)
+### Standard-Plan (12 Konfigurationen)
 
-Systematischer Vergleich von GC-Strategien, G1-Tuning und JVM-Interna auf Temurin JRE 25:
+Systematischer Vergleich von GC-Strategien, G1-Tuning, Cloud-relevanter Konfigurationen und JVM-Interna auf Temurin JRE 25:
 
 **Garbage-Collector-Vergleich:**
 ```java
@@ -218,11 +218,19 @@ BenchmarkConfig("g1-heap-256m", "tfl4-ek-bench:jvm", List.of("-Xmx256m"))       
 BenchmarkConfig("g1-heap-512m", "tfl4-ek-bench:jvm", List.of("-Xmx512m"))               // mittlerer Heap
 ```
 
+**Cloud-relevante Konfigurationen:**
+```java
+BenchmarkConfig("ram-percentage-75", "tfl4-ek-bench:jvm", List.of("-XX:MaxRAMPercentage=75"))   // Container-aware Heap (75% des Limits)
+BenchmarkConfig("tiered-stop-1",    "tfl4-ek-bench:jvm", List.of("-XX:TieredStopAtLevel=1"))    // Nur C1-Compiler, schnellerer Startup
+```
+
 **JVM-Interna:**
 ```java
 BenchmarkConfig("coops-off", "tfl4-ek-bench:jvm", List.of("-XX:-UseCompressedOops"))     // 64-Bit-Referenzen
 BenchmarkConfig("coh-on",    "tfl4-ek-bench:jvm", List.of("-XX:+UnlockExperimentalVMOptions", "-XX:+UseCompactObjectHeaders"))
 ```
+
+Für alle Konfigurationen wird automatisch `-Xlog:gc*:stdout` als Basis-Flag injiziert, damit GC-Logs in der Container-Standardausgabe landen (für spätere Auswertung).
 
 JVM-Flags werden über `JAVA_TOOL_OPTIONS` an den Container übergeben. Bei Native-Images wird `JAVA_TOOL_OPTIONS` nicht gesetzt.
 
@@ -232,8 +240,8 @@ JVM-Flags werden über `JAVA_TOOL_OPTIONS` an den Container übergeben. Bei Nati
 |-----------------------------|----------------------|---------------------------------------|
 | `--scenario`                | interaktiv           | json / alloc / ebics-upload            |
 | `--n`                       | szenarioabhängig     | Workload-Größe                        |
-| `--warmupRequests`          | 20                   | Aufwärm-Requests                      |
-| `--measureRequests`         | 100                  | Mess-Requests                         |
+| `--warmupRequests`          | 200                  | Aufwärm-Requests                      |
+| `--measureRequests`         | 500                  | Mess-Requests                         |
 | `--concurrency`             | 1                    | Parallele Requests                    |
 | `--sleepBetweenRequestsMs`  | 0                    | Pause zwischen Requests (ms)          |
 | `--jvmArgs`                 | —                    | JVM-Flags für einen einzelnen Run (überschreibt Default-Plan) |
@@ -248,7 +256,7 @@ Beide Formen: `--scenario json` und `--scenario=json`.
 ### Beispiele
 
 ```bash
-# Default-Plan (10 Konfigurationen, 3 Wiederholungen):
+# Default-Plan (12 Konfigurationen, 3 Wiederholungen):
 ./mvnw exec:java -Dexec.args="--scenario json --n 200000"
 
 # 5 Wiederholungen mit EBICS-Szenario (TravicLink muss nativ laufen):
@@ -308,7 +316,7 @@ Wenn `--jvmArgs` gesetzt ist, wird **nur eine** Konfiguration mit den angegebene
 ### Ausführen
 
 ```bash
-./mvnw test                  # 165 Unit Tests (kein Docker nötig)
+./mvnw test                  # 167 Unit Tests (kein Docker nötig)
 ./mvnw test -DincludeDocker  # 4 Docker-E2E-Tests (braucht Docker + gebautes Image)
 ```
 
@@ -323,7 +331,7 @@ Docker-E2E-Tests sind mit `@Tag("docker")` markiert. Standardmäßig schließt S
 | BenchCliTest             | 49    | Argument-Parsing, Szenario-Auflösung, Defaults, --jvmArgs, --repetitions, hasFlag, EBICS-Image-Auswahl |
 | MeasurementProfileTest   | 11    | Validierung, Defaults, ungültige Werte         |
 | BenchmarkConfigTest      | 8     | isNative()-Erkennung, Record-Felder            |
-| BenchmarkPlanTest        | 20    | defaultPlan()-Struktur, alle 10 Konfigurationen, withDockerImage()|
+| BenchmarkPlanTest        | 22    | defaultPlan()-Struktur, alle 12 Konfigurationen, withDockerImage()|
 | DockerStatSampleTest     | 8     | Parsing realer docker-stats-Ausgaben           |
 | RunResultTest            | 3     | Record-Zugriff                                 |
 | ConsoleSummaryPrinterTest| 12    | Ausgabe-Formatierung, Sortierung, Wiederholungs-Aggregation |
@@ -428,6 +436,6 @@ Der `spring-boot-maven-plugin` bindet System-Scope-JARs ein (`includeSystemScope
 | Build | Maven via Wrapper |
 | Docker Base | Eclipse Temurin JRE 25 |
 | EBICS Kernel | Travic EK 4.0.9 (PPI AG), optional |
-| Tests | JUnit 5, Spring Boot WebMvc Test, 165 Unit + 4 E2E |
+| Tests | JUnit 5, Spring Boot WebMvc Test, 167 Unit + 4 E2E |
 | Container Limits | 1 CPU, 768 MB RAM, Swap deaktiviert |
 | Fat JAR | ~54 MB |

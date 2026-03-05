@@ -564,6 +564,9 @@ public class SingleRun {
     /**
      * Baut den JAVA_TOOL_OPTIONS-String fuer diesen Run.
      *
+     * Injiziert automatisch GC-Logging (-Xlog:gc*:stdout) fuer alle JVM-Runs,
+     * damit GC-Verhalten in den Container-Logs nachvollziehbar ist.
+     *
      * @param cfg Benchmark-Konfiguration
      * @return Flags als String oder null bei native
      */
@@ -571,6 +574,10 @@ public class SingleRun {
         if (cfg.isNative()) return null;
 
         List<String> args = new ArrayList<>();
+
+        // GC-Logging: immer aktiv, Output auf stdout (landet in docker logs)
+        args.add("-Xlog:gc*:stdout");
+
         if (cfg.jvmArgs() != null) args.addAll(cfg.jvmArgs());
 
         return String.join(" ", args);

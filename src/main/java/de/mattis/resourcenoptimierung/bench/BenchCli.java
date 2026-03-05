@@ -23,8 +23,8 @@ import java.util.List;
  * CLI-Argumente:
  * - --scenario:                json|alloc|ebics-upload (optional, sonst interaktiv)
  * - --n:                       Workload-Groesse (optional)
- * - --warmupRequests:          Anzahl Warmup-Requests (default: 20)
- * - --measureRequests:         Anzahl Mess-Requests (default: 100)
+ * - --warmupRequests:          Anzahl Warmup-Requests (default: 200)
+ * - --measureRequests:         Anzahl Mess-Requests (default: 500)
  * - --concurrency:             Parallele Requests (default: 1)
  * - --sleepBetweenRequestsMs:  Pause zwischen Requests in ms (default: 0)
  * - --repetitions:             Anzahl Wiederholungen pro Konfiguration (default: 3)
@@ -118,8 +118,8 @@ public class BenchCli {
      * @return konfiguriertes MeasurementProfile
      */
     static MeasurementProfile resolveProfile(String[] args) {
-        int warmup = resolveIntArg(args, "--warmupRequests", 20);
-        int measure = resolveIntArg(args, "--measureRequests", 100);
+        int warmup = resolveIntArg(args, "--warmupRequests", 200);
+        int measure = resolveIntArg(args, "--measureRequests", 500);
         int concurrency = resolveIntArg(args, "--concurrency", 1);
         long sleepMs = resolveLongArg(args, "--sleepBetweenRequestsMs", 0);
 

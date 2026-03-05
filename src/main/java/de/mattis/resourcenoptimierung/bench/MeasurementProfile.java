@@ -7,12 +7,12 @@ package de.mattis.resourcenoptimierung.bench;
  * (Warmup, Messung) ausgefuehrt werden und ob zwischen
  * den Requests gewartet wird (fuer konstante Lastmuster).
  *
- * Die Defaults entsprechen dem bisherigen Verhalten:
- * 20 Warmup-Requests, 100 Mess-Requests, kein Sleep.
+ * Die Defaults sind fuer statistisch aussagekraeftige Ergebnisse ausgelegt:
+ * 200 Warmup-Requests (JIT-Stabilisierung), 500 Mess-Requests, kein Sleep.
  *
  * CLI-Argumente:
- *   --warmupRequests       Anzahl Warmup-Requests (default: 20)
- *   --measureRequests      Anzahl Mess-Requests (default: 100)
+ *   --warmupRequests       Anzahl Warmup-Requests (default: 200)
+ *   --measureRequests      Anzahl Mess-Requests (default: 500)
  *   --concurrency          Parallele Requests (default: 1, sequentiell)
  *   --sleepBetweenRequestsMs  Pause zwischen Requests in ms (default: 0)
  *                             Nützlich fuer konstante Last, z.B. 100ms = ~10 req/s
@@ -30,11 +30,12 @@ public record MeasurementProfile(
 ) {
 
     /**
-     * Standard-Messprofil: 20 Warmup, 100 Messung, sequentiell, kein Sleep.
-     * Entspricht dem bisherigen hartcodierten Verhalten.
+     * Standard-Messprofil: 200 Warmup, 500 Messung, sequentiell, kein Sleep.
+     * 200 Warmup-Requests genuegen fuer C2-JIT-Kompilierung und Steady-State.
+     * 500 Mess-Requests liefern statistisch belastbare Latenzverteilungen.
      */
     public static MeasurementProfile defaults() {
-        return new MeasurementProfile(20, 100, 1, 0);
+        return new MeasurementProfile(200, 500, 1, 0);
     }
 
     /**

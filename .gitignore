@@ -31,3 +31,18 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### Proprietary / Secret ###
+lib/
+ebics/*.p12
+ebics/ebicsclient.config
+bench-docker/tl/runtime/
+bench-docker/tl/start-tl.sh
+bench-docker/CACHED
+bench-docker/\[internal\]
+bench-docker/docker
+bench-docker/exporting
+bench-docker/resolving
+
+### Benchmark Output ###
+bench-results/

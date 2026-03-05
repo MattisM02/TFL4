@@ -176,8 +176,8 @@ class BenchCliTest {
     void resolveProfile_partialOverride() {
         String[] args = {"--concurrency", "8"};
         MeasurementProfile p = BenchCli.resolveProfile(args);
-        assertEquals(20, p.warmupRequests());  // default
-        assertEquals(100, p.measureRequests()); // default
+        assertEquals(200, p.warmupRequests());  // default
+        assertEquals(500, p.measureRequests()); // default
         assertEquals(8, p.concurrency());       // overridden
         assertEquals(0, p.sleepBetweenRequestsMs()); // default
     }

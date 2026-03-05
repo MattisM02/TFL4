@@ -159,8 +159,8 @@ class ResultExportersTest {
         assertTrue(json.contains("\"throughputReqPerSec\":"));
         assertTrue(json.contains("\"latenciesSeconds\":["));
         assertTrue(json.contains("\"measurementProfile\":{"));
-        assertTrue(json.contains("\"warmupRequests\":20"));
-        assertTrue(json.contains("\"measureRequests\":100"));
+        assertTrue(json.contains("\"warmupRequests\":200"));
+        assertTrue(json.contains("\"measureRequests\":500"));
         assertTrue(json.contains("\"repetition\":1"));
     }
 

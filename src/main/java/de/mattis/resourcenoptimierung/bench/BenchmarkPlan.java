@@ -72,6 +72,12 @@ public class BenchmarkPlan {
      *   <li>coh-on — Compact Object Headers (JEP 450, experimentell ab JDK 24)</li>
      * </ul>
      *
+     * <h3>Cloud-relevante Konfigurationen</h3>
+     * <ul>
+     *   <li>ram-percentage-75 — MaxRAMPercentage=75: Container-aware Heap-Sizing (75% des cgroup-Limits)</li>
+     *   <li>tiered-stop-1 — TieredStopAtLevel=1: Nur C1-Kompilierung, schnellerer Start, kein C2-Overhead</li>
+     * </ul>
+     *
      * @return Benchmark-Plan mit Standard-Konfigurationen
      */
     public static BenchmarkPlan defaultPlan() {
@@ -132,6 +138,18 @@ public class BenchmarkPlan {
                         "coh-on",
                         img,
                         List.of("-XX:+UnlockExperimentalVMOptions", "-XX:+UseCompactObjectHeaders")
+                ),
+
+                // --- Cloud-relevante Konfigurationen ---
+                new BenchmarkConfig(
+                        "ram-percentage-75",
+                        img,
+                        List.of("-XX:MaxRAMPercentage=75")
+                ),
+                new BenchmarkConfig(
+                        "tiered-stop-1",
+                        img,
+                        List.of("-XX:TieredStopAtLevel=1")
                 )
         ));
     }

@@ -20,10 +20,10 @@ class BenchmarkPlanTest {
     }
 
     @Test
-    void defaultPlan_containsTenConfigs() {
+    void defaultPlan_containsTwelveConfigs() {
         BenchmarkPlan plan = BenchmarkPlan.defaultPlan();
-        assertEquals(10, plan.configs.size(),
-                "Default plan should contain 10 configs (5 GC + 3 G1-tuning + 2 JVM-interna)");
+        assertEquals(12, plan.configs.size(),
+                "Default plan should contain 12 configs (5 GC + 3 G1-tuning + 2 JVM-interna + 2 cloud)");
     }
 
     @Test
@@ -96,6 +96,18 @@ class BenchmarkPlanTest {
         BenchmarkConfig cfg = findConfig(BenchmarkPlan.defaultPlan(), "coh-on");
         assertTrue(cfg.jvmArgs().contains("-XX:+UnlockExperimentalVMOptions"));
         assertTrue(cfg.jvmArgs().contains("-XX:+UseCompactObjectHeaders"));
+    }
+
+    @Test
+    void defaultPlan_containsRamPercentage75() {
+        BenchmarkConfig cfg = findConfig(BenchmarkPlan.defaultPlan(), "ram-percentage-75");
+        assertTrue(cfg.jvmArgs().contains("-XX:MaxRAMPercentage=75"));
+    }
+
+    @Test
+    void defaultPlan_containsTieredStop1() {
+        BenchmarkConfig cfg = findConfig(BenchmarkPlan.defaultPlan(), "tiered-stop-1");
+        assertTrue(cfg.jvmArgs().contains("-XX:TieredStopAtLevel=1"));
     }
 
     @Test

@@ -12,8 +12,8 @@ class MeasurementProfileTest {
     @Test
     void defaults_returnsExpectedValues() {
         MeasurementProfile p = MeasurementProfile.defaults();
-        assertEquals(20, p.warmupRequests());
-        assertEquals(100, p.measureRequests());
+        assertEquals(200, p.warmupRequests());
+        assertEquals(500, p.measureRequests());
         assertEquals(1, p.concurrency());
         assertEquals(0, p.sleepBetweenRequestsMs());
     }

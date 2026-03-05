@@ -94,8 +94,8 @@ class ConsoleSummaryPrinterTest {
         ConsoleSummaryPrinter.print(List.of(sampleResult("baseline", BenchmarkScenario.PAYLOAD_HEAVY_JSON)));
         String output = getCaptured();
         assertTrue(output.contains("Profile:"));
-        assertTrue(output.contains("warmup=20"));
-        assertTrue(output.contains("measure=100"));
+        assertTrue(output.contains("warmup=200"));
+        assertTrue(output.contains("measure=500"));
     }
 
     @Test
