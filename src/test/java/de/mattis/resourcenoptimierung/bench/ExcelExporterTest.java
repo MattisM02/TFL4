@@ -289,21 +289,21 @@ class ExcelExporterTest {
 
         assertEquals(1, rows.size());
         ExcelExporter.CsvRow row = rows.get(0);
-        assertEquals("2026-03-01 10:00:00", row.timestamp);
-        assertEquals("baseline", row.configName);
-        assertEquals("PAYLOAD_HEAVY_JSON", row.scenario);
-        assertEquals("-XX:+UseZGC", row.jvmFlags);
-        assertEquals(200000, row.workloadN);
-        assertEquals(1200.0, row.readinessMs, 0.01);
-        assertEquals(0.25, row.firstSeconds, 0.001);
-        assertEquals(0.012, row.p50, 0.001);
-        assertEquals(0.020, row.p95, 0.001);
-        assertEquals(0.022, row.p99, 0.001);
-        assertEquals(66.67, row.throughput, 0.01);
-        assertEquals(20, row.warmup);
-        assertEquals(100, row.measureReqs);
-        assertEquals(1, row.concurrency);
-        assertEquals(0, row.sleepMs);
+        assertEquals("2026-03-01 10:00:00", row.timestamp());
+        assertEquals("baseline", row.configName());
+        assertEquals("PAYLOAD_HEAVY_JSON", row.scenario());
+        assertEquals("-XX:+UseZGC", row.jvmFlags());
+        assertEquals(200000, row.workloadN());
+        assertEquals(1200.0, row.readinessMs(), 0.01);
+        assertEquals(0.25, row.firstSeconds(), 0.001);
+        assertEquals(0.012, row.p50(), 0.001);
+        assertEquals(0.020, row.p95(), 0.001);
+        assertEquals(0.022, row.p99(), 0.001);
+        assertEquals(66.67, row.throughput(), 0.01);
+        assertEquals(20, row.warmup());
+        assertEquals(100, row.measureReqs());
+        assertEquals(1, row.concurrency());
+        assertEquals(0, row.sleepMs());
     }
 
     @Test
@@ -337,8 +337,8 @@ class ExcelExporterTest {
 
         List<ExcelExporter.CsvRow> rows = ExcelExporter.parseCsv(csv, "ts");
         assertEquals(2, rows.size());
-        assertEquals("baseline", rows.get(0).configName);
-        assertEquals("zgc", rows.get(1).configName);
+        assertEquals("baseline", rows.get(0).configName());
+        assertEquals("zgc", rows.get(1).configName());
     }
 
     // ======================== extractTimestamp ========================
@@ -379,6 +379,6 @@ class ExcelExporterTest {
 
         List<ExcelExporter.CsvRow> rows = ExcelExporter.parseCsv(csv, "ts");
         assertEquals(1, rows.size());
-        assertEquals("-XX:+UseZGC, -Xmx1g", rows.get(0).jvmFlags);
+        assertEquals("-XX:+UseZGC, -Xmx1g", rows.get(0).jvmFlags());
     }
 }

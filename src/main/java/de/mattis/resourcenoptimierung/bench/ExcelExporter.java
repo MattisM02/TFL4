@@ -2,6 +2,9 @@ package de.mattis.resourcenoptimierung.bench;
 
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.ss.util.CellRangeAddress;
+import org.apache.poi.xddf.usermodel.XDDFColor;
+import org.apache.poi.xddf.usermodel.XDDFSolidFillProperties;
+import org.apache.poi.xddf.usermodel.chart.*;
 import org.apache.poi.xssf.usermodel.*;
 
 import java.io.BufferedReader;
@@ -16,40 +19,50 @@ import java.util.stream.Stream;
 /**
  * Exportiert Benchmark-Ergebnisse als formatiertes Excel-Workbook (.xlsx).
  *
- * Erzeugt ein Workbook mit folgenden Sheets:
- * 1. Uebersicht      – Alle Kennzahlen tabellarisch, bedingte Formatierung, AutoFilter
- * 2. Latenzen         – p50/p95/p99-Vergleich als Balkendiagramm
- * 3. Startup          – Readiness + First-Request + Throughput als Diagramme
- * 4. Ressourcen       – Docker CPU/Mem IDLE vs LOAD vs POST
- * 5. Rohdaten         – Einzellatenzen fuer eigene Auswertungen
+ * <p>Erzeugt ein Workbook mit folgenden Sheets:
+ * <ol>
+ *   <li><b>Uebersicht</b> – Alle Kennzahlen tabellarisch mit bedingter Formatierung und AutoFilter</li>
+ *   <li><b>Latenzen</b> – p50/p95/p99-Vergleich als Balkendiagramm</li>
+ *   <li><b>Startup &amp; Throughput</b> – Readiness + Throughput als Diagramme</li>
+ *   <li><b>Ressourcen</b> – Docker CPU/Mem fuer IDLE, LOAD und POST</li>
+ *   <li><b>Rohdaten</b> – Einzellatenzen fuer eigene Auswertungen</li>
+ * </ol>
  *
- * Zusaetzlich: mergeFromCsvDirectory() liest alle CSVs aus bench-results/
+ * <p>Zusaetzlich: {@link #mergeFromCsvDirectory} liest alle CSVs aus bench-results/
  * und erzeugt ein zusammengefuehrtes Excel fuer Vergleiche ueber mehrere Runs.
  */
 public final class ExcelExporter {
 
     private ExcelExporter() {}
 
-    // ======================== Farben ========================
+    // ───────────────────── Farbpalette (modern flat) ─────────────────────
 
-    private static final byte[] COLOR_HEADER_BG    = {(byte) 0x2B, (byte) 0x57, (byte) 0x9A};  // dunkles Blau
-    private static final byte[] COLOR_HEADER_FG    = {(byte) 0xFF, (byte) 0xFF, (byte) 0xFF};  // weiss
-    private static final byte[] COLOR_SECTION_BG   = {(byte) 0xDC, (byte) 0xE6, (byte) 0xF1};  // helles Blau
-    private static final byte[] COLOR_STRIPE_BG    = {(byte) 0xF2, (byte) 0xF2, (byte) 0xF2};  // hellgrau
-    private static final byte[] COLOR_GREEN        = {(byte) 0x27, (byte) 0xAE, (byte) 0x60};
-    private static final byte[] COLOR_RED          = {(byte) 0xE7, (byte) 0x4C, (byte) 0x3C};
-    private static final byte[] COLOR_ORANGE       = {(byte) 0xF3, (byte) 0x9C, (byte) 0x12};
-    private static final byte[] COLOR_DARK_BLUE    = {(byte) 0x2C, (byte) 0x3E, (byte) 0x50};
+    private static final byte[] CLR_PRIMARY     = rgb(0x2B, 0x57, 0x9A);  // dunkelblau – Header
+    private static final byte[] CLR_PRIMARY_LT  = rgb(0xD6, 0xE4, 0xF0);  // hellblau   – Section-Header
+    private static final byte[] CLR_STRIPE      = rgb(0xF5, 0xF7, 0xFA);  // kuehlgrau  – Zebrastreifen
+    private static final byte[] CLR_WHITE       = rgb(0xFF, 0xFF, 0xFF);
 
-    // ======================== Public API ========================
+    private static final byte[] CLR_GREEN       = rgb(0x27, 0xAE, 0x60);
+    private static final byte[] CLR_ORANGE      = rgb(0xF3, 0x9C, 0x12);
+    private static final byte[] CLR_RED         = rgb(0xE7, 0x4C, 0x3C);
+    private static final byte[] CLR_DARK_BLUE   = rgb(0x2C, 0x3E, 0x50);
+
+    private static byte[] rgb(int r, int g, int b) {
+        return new byte[]{(byte) r, (byte) g, (byte) b};
+    }
+
+    // ───────────────────── Chart-Serien-Definition ─────────────────────
+
+    /** Beschreibt eine Datenreihe innerhalb eines Balkendiagramms. */
+    private record ChartSeries(String title, int column, byte[] color) {}
+
+    // ───────────────────── Public API ─────────────────────
 
     /**
      * Schreibt Benchmark-Ergebnisse als Excel-Datei.
-     * Wird automatisch nach jedem Benchmark-Durchlauf aufgerufen.
      *
      * @param results Ergebnisse eines Benchmark-Durchlaufs
      * @param path    Zielpfad (.xlsx)
-     * @throws IOException wenn Schreiben fehlschlaegt
      */
     public static void writeExcel(List<RunResult> results, Path path) throws IOException {
         if (results == null || results.isEmpty()) return;
@@ -63,20 +76,16 @@ public final class ExcelExporter {
             writeRessourcen(wb, styles, results);
             writeRohdaten(wb, styles, results);
 
-            try (OutputStream os = Files.newOutputStream(path)) {
-                wb.write(os);
-            }
+            try (OutputStream os = Files.newOutputStream(path)) { wb.write(os); }
         }
     }
 
     /**
      * Liest alle CSV-Dateien aus einem Verzeichnis und erzeugt ein
-     * zusammengefuehrtes Excel-Workbook. Ermoeglicht den Vergleich
-     * ueber mehrere Benchmark-Durchlaeufe hinweg.
+     * zusammengefuehrtes Excel-Workbook fuer Run-uebergreifende Vergleiche.
      *
      * @param csvDir   Verzeichnis mit CSV-Dateien (z.B. bench-results/)
      * @param excelOut Zielpfad fuer die Excel-Datei
-     * @throws IOException wenn Lesen oder Schreiben fehlschlaegt
      */
     public static void mergeFromCsvDirectory(Path csvDir, Path excelOut) throws IOException {
         List<CsvRow> allRows = new ArrayList<>();
@@ -105,58 +114,34 @@ public final class ExcelExporter {
             writeMergedStartupChart(wb, styles, allRows);
             writeMergedRessourcenNote(wb, styles);
 
-            try (OutputStream os = Files.newOutputStream(excelOut)) {
-                wb.write(os);
-            }
+            try (OutputStream os = Files.newOutputStream(excelOut)) { wb.write(os); }
         }
 
         System.out.println("Merged Excel: " + excelOut + " (" + allRows.size() + " rows from CSV)");
     }
 
-    // ======================== Sheet 1: Uebersicht ========================
+    // ═══════════════════════════════════════════════════════════════════
+    //  Sheet 1: Uebersicht
+    // ═══════════════════════════════════════════════════════════════════
 
     private static void writeUebersicht(XSSFWorkbook wb, Styles s, List<RunResult> results) {
         XSSFSheet sheet = wb.createSheet("Übersicht");
         sheet.setDefaultColumnWidth(14);
 
-        // Spalten-Definition
         String[] headers = {
-                "Config",
-                "Szenario",
-                "JVM-Flags",
-                "Docker-Image",
-                // Startup
-                "Readiness (ms)",
-                "First Req (s)",
-                // Latenzen
-                "p50 (s)",
-                "p95 (s)",
-                "p99 (s)",
-                "Mean (s)",
-                "Latenz-Count",
-                // Durchsatz
-                "Messzeit (s)",
-                "Throughput (req/s)",
-                // Docker LOAD
-                "CPU% (LOAD avg)",
-                "Mem% (LOAD avg)",
-                "Mem% (LOAD max)",
-                // Docker IDLE
+                "Config", "Szenario", "JVM-Flags", "Docker-Image",
+                "Readiness (ms)", "First Req (s)",
+                "p50 (s)", "p95 (s)", "p99 (s)", "Mean (s)", "Latenz-Count",
+                "Messzeit (s)", "Throughput (req/s)",
+                "CPU% (LOAD avg)", "Mem% (LOAD avg)", "Mem% (LOAD max)",
                 "Mem% (IDLE avg)",
-                // Messprofil
-                "Warmup",
-                "Mess-Req",
-                "Concurrency",
-                "Sleep (ms)",
-                // Meta
-                "Workload-Pfad",
-                "Workload-N",
-                "Repetition"
+                "Warmup", "Mess-Req", "Concurrency", "Sleep (ms)",
+                "Workload-Pfad", "Workload-N", "Repetition"
         };
 
-        // --- Section Header Row ---
+        // Section-Header-Zeile (Kategorien ueber den Spalten)
         XSSFRow sectionRow = sheet.createRow(0);
-        sectionRow.setHeightInPoints(20);
+        sectionRow.setHeightInPoints(22);
         writeSectionHeaders(sectionRow, s, new String[]{
                 "Konfiguration", "", "", "",
                 "Startup", "",
@@ -167,386 +152,209 @@ public final class ExcelExporter {
                 "Messprofil", "", "", "",
                 "Meta", "", ""
         });
+        mergeIfValid(sheet, 0, 0, 0, 3);
+        mergeIfValid(sheet, 0, 0, 4, 5);
+        mergeIfValid(sheet, 0, 0, 6, 10);
+        mergeIfValid(sheet, 0, 0, 11, 12);
+        mergeIfValid(sheet, 0, 0, 13, 15);
+        mergeIfValid(sheet, 0, 0, 17, 20);
+        mergeIfValid(sheet, 0, 0, 21, 23);
 
-        // Merge section headers
-        mergeIfValid(sheet, 0, 0, 0, 3);   // Konfiguration
-        mergeIfValid(sheet, 0, 0, 4, 5);   // Startup
-        mergeIfValid(sheet, 0, 0, 6, 10);  // Latenzen
-        mergeIfValid(sheet, 0, 0, 11, 12); // Durchsatz
-        mergeIfValid(sheet, 0, 0, 13, 15); // Docker LOAD
-        mergeIfValid(sheet, 0, 0, 17, 20); // Messprofil
-        mergeIfValid(sheet, 0, 0, 21, 23); // Meta
+        writeHeaderRow(sheet, 1, headers, s);
 
-        // --- Column Header Row ---
-        XSSFRow headerRow = sheet.createRow(1);
-        headerRow.setHeightInPoints(30);
-        for (int c = 0; c < headers.length; c++) {
-            XSSFCell cell = headerRow.createCell(c);
-            cell.setCellValue(headers[c]);
-            cell.setCellStyle(s.header);
-        }
-
-        // --- Data Rows ---
+        // Datenzeilen
         for (int i = 0; i < results.size(); i++) {
             RunResult r = results.get(i);
             XSSFRow row = sheet.createRow(i + 2);
-            CellStyle dataStyle = (i % 2 == 0) ? s.data : s.dataStripe;
-            CellStyle numStyle = (i % 2 == 0) ? s.number : s.numberStripe;
-            CellStyle num4Style = (i % 2 == 0) ? s.number4 : s.number4Stripe;
-            CellStyle pctStyle = (i % 2 == 0) ? s.percent : s.percentStripe;
 
-            List<Double> lats = new ArrayList<>(r.latenciesSeconds());
-            lats.sort(Double::compareTo);
+            List<Double> lats = sorted(r.latenciesSeconds());
             double mean = lats.stream().mapToDouble(Double::doubleValue).average().orElse(Double.NaN);
-
             DockerPhaseAvg load = phaseAvg(r.dockerLoadSamples());
             DockerPhaseAvg idle = phaseAvg(r.dockerIdleSamples());
+            MeasurementProfile p = r.measurementProfile();
 
             int c = 0;
-            setCell(row, c++, r.configName(), dataStyle);
-            setCell(row, c++, r.scenario() == null ? "" : r.scenario().name(), dataStyle);
-            setCell(row, c++, normalizeFlags(r.effectiveJavaToolOptions()), dataStyle);
-            setCell(row, c++, r.dockerImage(), dataStyle);
+            setCell(row, c++, r.configName(),                                pick(s, i, SK.TEXT));
+            setCell(row, c++, r.scenario() == null ? "" : r.scenario().name(), pick(s, i, SK.TEXT));
+            setCell(row, c++, normalizeFlags(r.effectiveJavaToolOptions()),   pick(s, i, SK.TEXT));
+            setCell(row, c++, r.dockerImage(),                               pick(s, i, SK.TEXT));
 
-            setCellNum(row, c++, r.readinessMs(), numStyle);
-            setCellNum(row, c++, r.firstSeconds(), num4Style);
+            setNum(row, c++, r.readinessMs(),          pick(s, i, SK.INT));
+            setNum(row, c++, r.firstSeconds(),         pick(s, i, SK.DEC4));
 
-            setCellNum(row, c++, percentile(lats, 0.50), num4Style);
-            setCellNum(row, c++, percentile(lats, 0.95), num4Style);
-            setCellNum(row, c++, percentile(lats, 0.99), num4Style);
-            setCellNum(row, c++, mean, num4Style);
-            setCellNum(row, c++, lats.size(), numStyle);
+            setNum(row, c++, percentile(lats, 0.50),   pick(s, i, SK.DEC4));
+            setNum(row, c++, percentile(lats, 0.95),   pick(s, i, SK.DEC4));
+            setNum(row, c++, percentile(lats, 0.99),   pick(s, i, SK.DEC4));
+            setNum(row, c++, mean,                     pick(s, i, SK.DEC4));
+            setNum(row, c++, lats.size(),              pick(s, i, SK.INT));
 
-            setCellNum(row, c++, r.totalMeasureTimeSeconds(), num4Style);
-            setCellNum(row, c++, r.throughputReqPerSec(), numStyle);
+            setNum(row, c++, r.totalMeasureTimeSeconds(), pick(s, i, SK.DEC4));
+            setNum(row, c++, r.throughputReqPerSec(),     pick(s, i, SK.INT));
 
-            setCellNum(row, c++, load != null ? load.cpuAvg : Double.NaN, pctStyle);
-            setCellNum(row, c++, load != null ? load.memAvg : Double.NaN, pctStyle);
-            setCellNum(row, c++, load != null ? load.memMax : Double.NaN, pctStyle);
-            setCellNum(row, c++, idle != null ? idle.memAvg : Double.NaN, pctStyle);
+            setNum(row, c++, dval(load, a -> a.cpuAvg), pick(s, i, SK.PCT));
+            setNum(row, c++, dval(load, a -> a.memAvg), pick(s, i, SK.PCT));
+            setNum(row, c++, dval(load, a -> a.memMax), pick(s, i, SK.PCT));
+            setNum(row, c++, dval(idle, a -> a.memAvg), pick(s, i, SK.PCT));
 
-            MeasurementProfile p = r.measurementProfile();
-            setCellNum(row, c++, p.warmupRequests(), numStyle);
-            setCellNum(row, c++, p.measureRequests(), numStyle);
-            setCellNum(row, c++, p.concurrency(), numStyle);
-            setCellNum(row, c++, p.sleepBetweenRequestsMs(), numStyle);
+            setNum(row, c++, p.warmupRequests(),          pick(s, i, SK.INT));
+            setNum(row, c++, p.measureRequests(),         pick(s, i, SK.INT));
+            setNum(row, c++, p.concurrency(),             pick(s, i, SK.INT));
+            setNum(row, c++, p.sleepBetweenRequestsMs(),  pick(s, i, SK.INT));
 
-            setCell(row, c++, r.workloadPath(), dataStyle);
-            setCellNum(row, c++, r.workloadN(), numStyle);
-            setCellNum(row, c++, r.repetition(), numStyle);
+            setCell(row, c++, r.workloadPath(),        pick(s, i, SK.TEXT));
+            setNum(row, c++, r.workloadN(),            pick(s, i, SK.INT));
+            setNum(row, c++, r.repetition(),           pick(s, i, SK.INT));
         }
 
-        // AutoFilter
         sheet.setAutoFilter(new CellRangeAddress(1, 1 + results.size(), 0, headers.length - 1));
         sheet.createFreezePane(1, 2);
 
-        // Auto-size key columns
-        for (int c = 0; c < Math.min(headers.length, 24); c++) {
-            sheet.autoSizeColumn(c);
-            // Minimum 12 chars, max 35
-            int w = sheet.getColumnWidth(c);
-            sheet.setColumnWidth(c, Math.max(w, 12 * 256));
-            if (w > 35 * 256) sheet.setColumnWidth(c, 35 * 256);
-        }
+        // Bedingte Farbskala: Latenzen (p50=6, p95=7, p99=8)
+        addColorScale(sheet, 2, 1 + results.size(), 6, 8);
+        // Bedingte Farbskala: Ressourcen (CPU% LOAD=13 bis Mem% IDLE=16)
+        addColorScale(sheet, 2, 1 + results.size(), 13, 16);
+
+        autoSizeColumns(sheet, headers.length);
     }
 
-    // ======================== Sheet 2: Latenzen ========================
+    // ═══════════════════════════════════════════════════════════════════
+    //  Sheet 2: Latenzen
+    // ═══════════════════════════════════════════════════════════════════
 
     private static void writeLatenzen(XSSFWorkbook wb, Styles s, List<RunResult> results) {
         XSSFSheet sheet = wb.createSheet("Latenzen");
-
-        // Table header
-        XSSFRow header = sheet.createRow(0);
-        header.setHeightInPoints(25);
         String[] cols = {"Config", "JVM-Flags", "p50 (s)", "p95 (s)", "p99 (s)", "Mean (s)"};
-        for (int c = 0; c < cols.length; c++) {
-            XSSFCell cell = header.createCell(c);
-            cell.setCellValue(cols[c]);
-            cell.setCellStyle(s.header);
-        }
+        writeHeaderRow(sheet, 0, cols, s);
 
         for (int i = 0; i < results.size(); i++) {
             RunResult r = results.get(i);
-            List<Double> lats = new ArrayList<>(r.latenciesSeconds());
-            lats.sort(Double::compareTo);
+            List<Double> lats = sorted(r.latenciesSeconds());
             double mean = lats.stream().mapToDouble(Double::doubleValue).average().orElse(Double.NaN);
 
             XSSFRow row = sheet.createRow(i + 1);
-            CellStyle ds = (i % 2 == 0) ? s.data : s.dataStripe;
-            CellStyle ns = (i % 2 == 0) ? s.number4 : s.number4Stripe;
-
-            setCell(row, 0, r.configName(), ds);
-            setCell(row, 1, normalizeFlags(r.effectiveJavaToolOptions()), ds);
-            setCellNum(row, 2, percentile(lats, 0.50), ns);
-            setCellNum(row, 3, percentile(lats, 0.95), ns);
-            setCellNum(row, 4, percentile(lats, 0.99), ns);
-            setCellNum(row, 5, mean, ns);
+            setCell(row, 0, r.configName(),                               pick(s, i, SK.TEXT));
+            setCell(row, 1, normalizeFlags(r.effectiveJavaToolOptions()),  pick(s, i, SK.TEXT));
+            setNum(row, 2, percentile(lats, 0.50),                        pick(s, i, SK.DEC4));
+            setNum(row, 3, percentile(lats, 0.95),                        pick(s, i, SK.DEC4));
+            setNum(row, 4, percentile(lats, 0.99),                        pick(s, i, SK.DEC4));
+            setNum(row, 5, mean,                                          pick(s, i, SK.DEC4));
         }
 
-        // --- Balkendiagramm: Latenz-Vergleich ---
         if (results.size() >= 2) {
-            XSSFDrawing drawing = sheet.createDrawingPatriarch();
-            XSSFClientAnchor anchor = drawing.createAnchor(0, 0, 0, 0,
-                    0, results.size() + 3, 10, results.size() + 3 + Math.max(12, results.size() * 2));
-
-            XSSFChart chart = drawing.createChart(anchor);
-            chart.setTitleText("Latenz-Vergleich (s)");
-
-            // POI XDDFChart for bar chart
-            org.apache.poi.xddf.usermodel.chart.XDDFChartAxis catAxis =
-                    chart.createCategoryAxis(org.apache.poi.xddf.usermodel.chart.AxisPosition.BOTTOM);
-            catAxis.setTitle("Konfiguration");
-
-            org.apache.poi.xddf.usermodel.chart.XDDFValueAxis valAxis =
-                    chart.createValueAxis(org.apache.poi.xddf.usermodel.chart.AxisPosition.LEFT);
-            valAxis.setTitle("Latenz (s)");
-
-            // Category (config names): column 0, rows 1..n
-            org.apache.poi.xddf.usermodel.chart.XDDFDataSource<String> categories =
-                    org.apache.poi.xddf.usermodel.chart.XDDFDataSourcesFactory.fromStringCellRange(
-                            sheet, new CellRangeAddress(1, results.size(), 0, 0));
-
-            // Data series: p50 (col 2), p95 (col 3), p99 (col 4)
-            String[] seriesNames = {"p50", "p95", "p99"};
-            int[] seriesCols = {2, 3, 4};
-            byte[][] seriesColors = {COLOR_GREEN, COLOR_ORANGE, COLOR_RED};
-
-            org.apache.poi.xddf.usermodel.chart.XDDFBarChartData barData =
-                    (org.apache.poi.xddf.usermodel.chart.XDDFBarChartData)
-                            chart.createData(org.apache.poi.xddf.usermodel.chart.ChartTypes.BAR, catAxis, valAxis);
-            barData.setBarDirection(org.apache.poi.xddf.usermodel.chart.BarDirection.COL);
-            barData.setBarGrouping(org.apache.poi.xddf.usermodel.chart.BarGrouping.CLUSTERED);
-
-            for (int si = 0; si < seriesNames.length; si++) {
-                org.apache.poi.xddf.usermodel.chart.XDDFNumericalDataSource<Double> data =
-                        org.apache.poi.xddf.usermodel.chart.XDDFDataSourcesFactory.fromNumericCellRange(
-                                sheet, new CellRangeAddress(1, results.size(), seriesCols[si], seriesCols[si]));
-                org.apache.poi.xddf.usermodel.chart.XDDFBarChartData.Series series =
-                        (org.apache.poi.xddf.usermodel.chart.XDDFBarChartData.Series) barData.addSeries(categories, data);
-                series.setTitle(seriesNames[si], null);
-
-                // Color
-                org.apache.poi.xddf.usermodel.XDDFSolidFillProperties fill =
-                        new org.apache.poi.xddf.usermodel.XDDFSolidFillProperties(
-                                xssfColor(seriesColors[si]));
-                series.setFillProperties(fill);
-            }
-
-            chart.plot(barData);
+            addBarChart(sheet, results.size(), "Latenz-Vergleich (s)",
+                    "Konfiguration", "Latenz (s)", 0,
+                    new ChartSeries("p50", 2, CLR_GREEN),
+                    new ChartSeries("p95", 3, CLR_ORANGE),
+                    new ChartSeries("p99", 4, CLR_RED));
         }
-
-        for (int c = 0; c < cols.length; c++) sheet.autoSizeColumn(c);
+        autoSizeColumns(sheet, cols.length);
     }
 
-    // ======================== Sheet 3: Startup & Throughput ========================
+    // ═══════════════════════════════════════════════════════════════════
+    //  Sheet 3: Startup & Throughput
+    // ═══════════════════════════════════════════════════════════════════
 
     private static void writeStartupThroughput(XSSFWorkbook wb, Styles s, List<RunResult> results) {
         XSSFSheet sheet = wb.createSheet("Startup & Throughput");
-
         String[] cols = {"Config", "JVM-Flags", "Readiness (ms)", "First Req (s)", "Throughput (req/s)"};
-        XSSFRow header = sheet.createRow(0);
-        header.setHeightInPoints(25);
-        for (int c = 0; c < cols.length; c++) {
-            XSSFCell cell = header.createCell(c);
-            cell.setCellValue(cols[c]);
-            cell.setCellStyle(s.header);
-        }
+        writeHeaderRow(sheet, 0, cols, s);
 
         for (int i = 0; i < results.size(); i++) {
             RunResult r = results.get(i);
             XSSFRow row = sheet.createRow(i + 1);
-            CellStyle ds = (i % 2 == 0) ? s.data : s.dataStripe;
-            CellStyle ns = (i % 2 == 0) ? s.number : s.numberStripe;
-            CellStyle n4s = (i % 2 == 0) ? s.number4 : s.number4Stripe;
-
-            setCell(row, 0, r.configName(), ds);
-            setCell(row, 1, normalizeFlags(r.effectiveJavaToolOptions()), ds);
-            setCellNum(row, 2, r.readinessMs(), ns);
-            setCellNum(row, 3, r.firstSeconds(), n4s);
-            setCellNum(row, 4, r.throughputReqPerSec(), ns);
+            setCell(row, 0, r.configName(),                               pick(s, i, SK.TEXT));
+            setCell(row, 1, normalizeFlags(r.effectiveJavaToolOptions()),  pick(s, i, SK.TEXT));
+            setNum(row, 2, r.readinessMs(),                               pick(s, i, SK.INT));
+            setNum(row, 3, r.firstSeconds(),                              pick(s, i, SK.DEC4));
+            setNum(row, 4, r.throughputReqPerSec(),                       pick(s, i, SK.INT));
         }
 
-        // --- Readiness-Chart ---
         if (results.size() >= 2) {
-            XSSFDrawing drawing = sheet.createDrawingPatriarch();
+            addBarChart(sheet, results.size(), "Startup-Zeit (ms)",
+                    "Konfiguration", "Readiness (ms)", 0,
+                    new ChartSeries("Readiness (ms)", 2, CLR_DARK_BLUE));
 
-            // Chart 1: Readiness
-            XSSFClientAnchor anchor1 = drawing.createAnchor(0, 0, 0, 0,
-                    0, results.size() + 3, 7, results.size() + 15);
-            XSSFChart chart1 = drawing.createChart(anchor1);
-            chart1.setTitleText("Startup-Zeit (ms)");
-
-            var catAxis1 = chart1.createCategoryAxis(org.apache.poi.xddf.usermodel.chart.AxisPosition.BOTTOM);
-            var valAxis1 = chart1.createValueAxis(org.apache.poi.xddf.usermodel.chart.AxisPosition.LEFT);
-            valAxis1.setTitle("Readiness (ms)");
-
-            var cats1 = org.apache.poi.xddf.usermodel.chart.XDDFDataSourcesFactory.fromStringCellRange(
-                    sheet, new CellRangeAddress(1, results.size(), 0, 0));
-            var data1 = org.apache.poi.xddf.usermodel.chart.XDDFDataSourcesFactory.fromNumericCellRange(
-                    sheet, new CellRangeAddress(1, results.size(), 2, 2));
-
-            var barData1 = (org.apache.poi.xddf.usermodel.chart.XDDFBarChartData)
-                    chart1.createData(org.apache.poi.xddf.usermodel.chart.ChartTypes.BAR, catAxis1, valAxis1);
-            barData1.setBarDirection(org.apache.poi.xddf.usermodel.chart.BarDirection.COL);
-
-            var series1 = (org.apache.poi.xddf.usermodel.chart.XDDFBarChartData.Series) barData1.addSeries(cats1, data1);
-            series1.setTitle("Readiness (ms)", null);
-            series1.setFillProperties(new org.apache.poi.xddf.usermodel.XDDFSolidFillProperties(
-                    xssfColor(COLOR_DARK_BLUE)));
-            chart1.plot(barData1);
-
-            // Chart 2: Throughput
-            XSSFClientAnchor anchor2 = drawing.createAnchor(0, 0, 0, 0,
-                    0, results.size() + 17, 7, results.size() + 29);
-            XSSFChart chart2 = drawing.createChart(anchor2);
-            chart2.setTitleText("Durchsatz (req/s)");
-
-            var catAxis2 = chart2.createCategoryAxis(org.apache.poi.xddf.usermodel.chart.AxisPosition.BOTTOM);
-            var valAxis2 = chart2.createValueAxis(org.apache.poi.xddf.usermodel.chart.AxisPosition.LEFT);
-            valAxis2.setTitle("Throughput (req/s)");
-
-            var cats2 = org.apache.poi.xddf.usermodel.chart.XDDFDataSourcesFactory.fromStringCellRange(
-                    sheet, new CellRangeAddress(1, results.size(), 0, 0));
-            var data2 = org.apache.poi.xddf.usermodel.chart.XDDFDataSourcesFactory.fromNumericCellRange(
-                    sheet, new CellRangeAddress(1, results.size(), 4, 4));
-
-            var barData2 = (org.apache.poi.xddf.usermodel.chart.XDDFBarChartData)
-                    chart2.createData(org.apache.poi.xddf.usermodel.chart.ChartTypes.BAR, catAxis2, valAxis2);
-            barData2.setBarDirection(org.apache.poi.xddf.usermodel.chart.BarDirection.COL);
-
-            var series2 = (org.apache.poi.xddf.usermodel.chart.XDDFBarChartData.Series) barData2.addSeries(cats2, data2);
-            series2.setTitle("Throughput (req/s)", null);
-            series2.setFillProperties(new org.apache.poi.xddf.usermodel.XDDFSolidFillProperties(
-                    xssfColor(COLOR_GREEN)));
-            chart2.plot(barData2);
+            addBarChart(sheet, results.size(), "Durchsatz (req/s)",
+                    "Konfiguration", "Throughput (req/s)", 0, 14,
+                    new ChartSeries("Throughput (req/s)", 4, CLR_GREEN));
         }
-
-        for (int c = 0; c < cols.length; c++) sheet.autoSizeColumn(c);
+        autoSizeColumns(sheet, cols.length);
     }
 
-    // ======================== Sheet 4: Ressourcen ========================
+    // ═══════════════════════════════════════════════════════════════════
+    //  Sheet 4: Ressourcen
+    // ═══════════════════════════════════════════════════════════════════
 
     private static void writeRessourcen(XSSFWorkbook wb, Styles s, List<RunResult> results) {
         XSSFSheet sheet = wb.createSheet("Ressourcen");
-
         String[] cols = {
                 "Config", "JVM-Flags",
                 "CPU% IDLE", "CPU% LOAD", "CPU% POST",
                 "Mem% IDLE", "Mem% LOAD", "Mem% POST",
                 "Mem% LOAD max"
         };
-
-        XSSFRow header = sheet.createRow(0);
-        header.setHeightInPoints(25);
-        for (int c = 0; c < cols.length; c++) {
-            XSSFCell cell = header.createCell(c);
-            cell.setCellValue(cols[c]);
-            cell.setCellStyle(s.header);
-        }
+        writeHeaderRow(sheet, 0, cols, s);
 
         for (int i = 0; i < results.size(); i++) {
             RunResult r = results.get(i);
             XSSFRow row = sheet.createRow(i + 1);
-            CellStyle ds = (i % 2 == 0) ? s.data : s.dataStripe;
-            CellStyle ps = (i % 2 == 0) ? s.percent : s.percentStripe;
-
             DockerPhaseAvg idle = phaseAvg(r.dockerIdleSamples());
             DockerPhaseAvg load = phaseAvg(r.dockerLoadSamples());
             DockerPhaseAvg post = phaseAvg(r.dockerPostSamples());
 
-            setCell(row, 0, r.configName(), ds);
-            setCell(row, 1, normalizeFlags(r.effectiveJavaToolOptions()), ds);
+            setCell(row, 0, r.configName(),                               pick(s, i, SK.TEXT));
+            setCell(row, 1, normalizeFlags(r.effectiveJavaToolOptions()),  pick(s, i, SK.TEXT));
 
-            setCellNum(row, 2, idle != null ? idle.cpuAvg : Double.NaN, ps);
-            setCellNum(row, 3, load != null ? load.cpuAvg : Double.NaN, ps);
-            setCellNum(row, 4, post != null ? post.cpuAvg : Double.NaN, ps);
-
-            setCellNum(row, 5, idle != null ? idle.memAvg : Double.NaN, ps);
-            setCellNum(row, 6, load != null ? load.memAvg : Double.NaN, ps);
-            setCellNum(row, 7, post != null ? post.memAvg : Double.NaN, ps);
-
-            setCellNum(row, 8, load != null ? load.memMax : Double.NaN, ps);
+            setNum(row, 2, dval(idle, a -> a.cpuAvg), pick(s, i, SK.PCT));
+            setNum(row, 3, dval(load, a -> a.cpuAvg), pick(s, i, SK.PCT));
+            setNum(row, 4, dval(post, a -> a.cpuAvg), pick(s, i, SK.PCT));
+            setNum(row, 5, dval(idle, a -> a.memAvg), pick(s, i, SK.PCT));
+            setNum(row, 6, dval(load, a -> a.memAvg), pick(s, i, SK.PCT));
+            setNum(row, 7, dval(post, a -> a.memAvg), pick(s, i, SK.PCT));
+            setNum(row, 8, dval(load, a -> a.memMax), pick(s, i, SK.PCT));
         }
 
-        // --- Grouped Bar Chart: CPU + Mem under Load ---
         if (results.size() >= 2) {
-            XSSFDrawing drawing = sheet.createDrawingPatriarch();
-            XSSFClientAnchor anchor = drawing.createAnchor(0, 0, 0, 0,
-                    0, results.size() + 3, 10, results.size() + 3 + Math.max(12, results.size() * 2));
-            XSSFChart chart = drawing.createChart(anchor);
-            chart.setTitleText("Ressourcenverbrauch unter Last (LOAD)");
-
-            var catAxis = chart.createCategoryAxis(org.apache.poi.xddf.usermodel.chart.AxisPosition.BOTTOM);
-            var valAxis = chart.createValueAxis(org.apache.poi.xddf.usermodel.chart.AxisPosition.LEFT);
-            valAxis.setTitle("%");
-
-            var cats = org.apache.poi.xddf.usermodel.chart.XDDFDataSourcesFactory.fromStringCellRange(
-                    sheet, new CellRangeAddress(1, results.size(), 0, 0));
-
-            var barData = (org.apache.poi.xddf.usermodel.chart.XDDFBarChartData)
-                    chart.createData(org.apache.poi.xddf.usermodel.chart.ChartTypes.BAR, catAxis, valAxis);
-            barData.setBarDirection(org.apache.poi.xddf.usermodel.chart.BarDirection.COL);
-            barData.setBarGrouping(org.apache.poi.xddf.usermodel.chart.BarGrouping.CLUSTERED);
-
-            // CPU% LOAD (col 3)
-            var cpuData = org.apache.poi.xddf.usermodel.chart.XDDFDataSourcesFactory.fromNumericCellRange(
-                    sheet, new CellRangeAddress(1, results.size(), 3, 3));
-            var cpuSeries = (org.apache.poi.xddf.usermodel.chart.XDDFBarChartData.Series) barData.addSeries(cats, cpuData);
-            cpuSeries.setTitle("CPU% LOAD", null);
-            cpuSeries.setFillProperties(new org.apache.poi.xddf.usermodel.XDDFSolidFillProperties(
-                    xssfColor(COLOR_ORANGE)));
-
-            // Mem% LOAD (col 6)
-            var memData = org.apache.poi.xddf.usermodel.chart.XDDFDataSourcesFactory.fromNumericCellRange(
-                    sheet, new CellRangeAddress(1, results.size(), 6, 6));
-            var memSeries = (org.apache.poi.xddf.usermodel.chart.XDDFBarChartData.Series) barData.addSeries(cats, memData);
-            memSeries.setTitle("Mem% LOAD", null);
-            memSeries.setFillProperties(new org.apache.poi.xddf.usermodel.XDDFSolidFillProperties(
-                    xssfColor(COLOR_DARK_BLUE)));
-
-            chart.plot(barData);
+            addBarChart(sheet, results.size(), "Ressourcenverbrauch unter Last (LOAD)",
+                    "Konfiguration", "%", 0,
+                    new ChartSeries("CPU% LOAD", 3, CLR_ORANGE),
+                    new ChartSeries("Mem% LOAD", 6, CLR_DARK_BLUE));
         }
-
-        for (int c = 0; c < cols.length; c++) sheet.autoSizeColumn(c);
+        autoSizeColumns(sheet, cols.length);
     }
 
-    // ======================== Sheet 5: Rohdaten ========================
+    // ═══════════════════════════════════════════════════════════════════
+    //  Sheet 5: Rohdaten
+    // ═══════════════════════════════════════════════════════════════════
 
     private static void writeRohdaten(XSSFWorkbook wb, Styles s, List<RunResult> results) {
         XSSFSheet sheet = wb.createSheet("Rohdaten");
-
-        // Header: Config | Request# | Latenz (s)
-        XSSFRow header = sheet.createRow(0);
-        header.setHeightInPoints(25);
         String[] cols = {"Config", "JVM-Flags", "Repetition", "Request #", "Latenz (s)"};
-        for (int c = 0; c < cols.length; c++) {
-            XSSFCell cell = header.createCell(c);
-            cell.setCellValue(cols[c]);
-            cell.setCellStyle(s.header);
-        }
+        writeHeaderRow(sheet, 0, cols, s);
 
         int rowIdx = 1;
         for (RunResult r : results) {
-            List<Double> lats = r.latenciesSeconds();
             String flags = normalizeFlags(r.effectiveJavaToolOptions());
+            List<Double> lats = r.latenciesSeconds();
             for (int j = 0; j < lats.size(); j++) {
-                XSSFRow row = sheet.createRow(rowIdx++);
-                CellStyle ds = ((rowIdx - 1) % 2 == 0) ? s.data : s.dataStripe;
-                CellStyle ns = ((rowIdx - 1) % 2 == 0) ? s.number4 : s.number4Stripe;
-
-                setCell(row, 0, r.configName(), ds);
-                setCell(row, 1, flags, ds);
-                setCellNum(row, 2, r.repetition(), ds);
-                setCellNum(row, 3, j + 1, ds);
-                setCellNum(row, 4, lats.get(j), ns);
+                XSSFRow row = sheet.createRow(rowIdx);
+                int stripe = rowIdx - 1;
+                setCell(row, 0, r.configName(), pick(s, stripe, SK.TEXT));
+                setCell(row, 1, flags,          pick(s, stripe, SK.TEXT));
+                setNum(row, 2, r.repetition(),  pick(s, stripe, SK.TEXT));
+                setNum(row, 3, j + 1,           pick(s, stripe, SK.TEXT));
+                setNum(row, 4, lats.get(j),     pick(s, stripe, SK.DEC4));
+                rowIdx++;
             }
         }
 
         sheet.createFreezePane(0, 1);
-        for (int c = 0; c < cols.length; c++) sheet.autoSizeColumn(c);
+        autoSizeColumns(sheet, cols.length);
     }
 
-    // ======================== Merged CSV Sheets ========================
+    // ═══════════════════════════════════════════════════════════════════
+    //  Merged-CSV Sheets
+    // ═══════════════════════════════════════════════════════════════════
 
     private static void writeMergedOverview(XSSFWorkbook wb, Styles s, List<CsvRow> rows) {
         XSSFSheet sheet = wb.createSheet("Übersicht (alle Runs)");
@@ -560,221 +368,112 @@ public final class ExcelExporter {
                 "Warmup", "Mess-Req", "Concurrency", "Sleep (ms)",
                 "Workload-Pfad", "Workload-N"
         };
-
-        XSSFRow headerRow = sheet.createRow(0);
-        headerRow.setHeightInPoints(25);
-        for (int c = 0; c < headers.length; c++) {
-            XSSFCell cell = headerRow.createCell(c);
-            cell.setCellValue(headers[c]);
-            cell.setCellStyle(s.header);
-        }
+        writeHeaderRow(sheet, 0, headers, s);
 
         for (int i = 0; i < rows.size(); i++) {
             CsvRow r = rows.get(i);
             XSSFRow row = sheet.createRow(i + 1);
-            CellStyle ds = (i % 2 == 0) ? s.data : s.dataStripe;
-            CellStyle ns = (i % 2 == 0) ? s.number : s.numberStripe;
-            CellStyle n4s = (i % 2 == 0) ? s.number4 : s.number4Stripe;
-
             int c = 0;
-            setCell(row, c++, r.timestamp, ds);
-            setCell(row, c++, r.configName, ds);
-            setCell(row, c++, r.scenario, ds);
-            setCell(row, c++, r.jvmFlags, ds);
-            setCellNum(row, c++, r.readinessMs, ns);
-            setCellNum(row, c++, r.firstSeconds, n4s);
-            setCellNum(row, c++, r.p50, n4s);
-            setCellNum(row, c++, r.p95, n4s);
-            setCellNum(row, c++, r.p99, n4s);
-            setCellNum(row, c++, r.mean, n4s);
-            setCellNum(row, c++, r.totalMeasureTime, n4s);
-            setCellNum(row, c++, r.throughput, ns);
-            setCellNum(row, c++, r.warmup, ns);
-            setCellNum(row, c++, r.measureReqs, ns);
-            setCellNum(row, c++, r.concurrency, ns);
-            setCellNum(row, c++, r.sleepMs, ns);
-            setCell(row, c++, r.workloadPath, ds);
-            setCellNum(row, c++, r.workloadN, ns);
+            setCell(row, c++, r.timestamp(),       pick(s, i, SK.TEXT));
+            setCell(row, c++, r.configName(),      pick(s, i, SK.TEXT));
+            setCell(row, c++, r.scenario(),        pick(s, i, SK.TEXT));
+            setCell(row, c++, r.jvmFlags(),        pick(s, i, SK.TEXT));
+            setNum(row, c++, r.readinessMs(),      pick(s, i, SK.INT));
+            setNum(row, c++, r.firstSeconds(),     pick(s, i, SK.DEC4));
+            setNum(row, c++, r.p50(),              pick(s, i, SK.DEC4));
+            setNum(row, c++, r.p95(),              pick(s, i, SK.DEC4));
+            setNum(row, c++, r.p99(),              pick(s, i, SK.DEC4));
+            setNum(row, c++, r.mean(),             pick(s, i, SK.DEC4));
+            setNum(row, c++, r.totalMeasureTime(), pick(s, i, SK.DEC4));
+            setNum(row, c++, r.throughput(),       pick(s, i, SK.INT));
+            setNum(row, c++, r.warmup(),           pick(s, i, SK.INT));
+            setNum(row, c++, r.measureReqs(),      pick(s, i, SK.INT));
+            setNum(row, c++, r.concurrency(),      pick(s, i, SK.INT));
+            setNum(row, c++, r.sleepMs(),          pick(s, i, SK.INT));
+            setCell(row, c++, r.workloadPath(),    pick(s, i, SK.TEXT));
+            setNum(row, c++, r.workloadN(),        pick(s, i, SK.INT));
         }
 
         sheet.setAutoFilter(new CellRangeAddress(0, rows.size(), 0, headers.length - 1));
         sheet.createFreezePane(2, 1);
-
-        for (int c = 0; c < headers.length; c++) {
-            sheet.autoSizeColumn(c);
-            int w = sheet.getColumnWidth(c);
-            sheet.setColumnWidth(c, Math.max(w, 12 * 256));
-            if (w > 35 * 256) sheet.setColumnWidth(c, 35 * 256);
-        }
+        autoSizeColumns(sheet, headers.length);
     }
 
     private static void writeMergedLatencyChart(XSSFWorkbook wb, Styles s, List<CsvRow> rows) {
         XSSFSheet sheet = wb.createSheet("Latenzen (alle Runs)");
-
         String[] cols = {"Config", "Timestamp", "JVM-Flags", "p50 (s)", "p95 (s)", "p99 (s)"};
-        XSSFRow header = sheet.createRow(0);
-        header.setHeightInPoints(25);
-        for (int c = 0; c < cols.length; c++) {
-            XSSFCell cell = header.createCell(c);
-            cell.setCellValue(cols[c]);
-            cell.setCellStyle(s.header);
-        }
+        writeHeaderRow(sheet, 0, cols, s);
 
         for (int i = 0; i < rows.size(); i++) {
             CsvRow r = rows.get(i);
             XSSFRow row = sheet.createRow(i + 1);
-            CellStyle ds = (i % 2 == 0) ? s.data : s.dataStripe;
-            CellStyle ns = (i % 2 == 0) ? s.number4 : s.number4Stripe;
-
-            setCell(row, 0, r.configName, ds);
-            setCell(row, 1, r.timestamp, ds);
-            setCell(row, 2, r.jvmFlags, ds);
-            setCellNum(row, 3, r.p50, ns);
-            setCellNum(row, 4, r.p95, ns);
-            setCellNum(row, 5, r.p99, ns);
+            setCell(row, 0, r.configName(), pick(s, i, SK.TEXT));
+            setCell(row, 1, r.timestamp(),  pick(s, i, SK.TEXT));
+            setCell(row, 2, r.jvmFlags(),   pick(s, i, SK.TEXT));
+            setNum(row, 3, r.p50(),         pick(s, i, SK.DEC4));
+            setNum(row, 4, r.p95(),         pick(s, i, SK.DEC4));
+            setNum(row, 5, r.p99(),         pick(s, i, SK.DEC4));
         }
 
         if (rows.size() >= 2) {
-            XSSFDrawing drawing = sheet.createDrawingPatriarch();
-            XSSFClientAnchor anchor = drawing.createAnchor(0, 0, 0, 0,
-                    0, rows.size() + 3, 12, rows.size() + 3 + Math.max(14, rows.size() * 2));
-            XSSFChart chart = drawing.createChart(anchor);
-            chart.setTitleText("Latenz-Vergleich alle Runs (s)");
-
-            var catAxis = chart.createCategoryAxis(org.apache.poi.xddf.usermodel.chart.AxisPosition.BOTTOM);
-            var valAxis = chart.createValueAxis(org.apache.poi.xddf.usermodel.chart.AxisPosition.LEFT);
-            valAxis.setTitle("Latenz (s)");
-
-            var cats = org.apache.poi.xddf.usermodel.chart.XDDFDataSourcesFactory.fromStringCellRange(
-                    sheet, new CellRangeAddress(1, rows.size(), 0, 0));
-
-            var barData = (org.apache.poi.xddf.usermodel.chart.XDDFBarChartData)
-                    chart.createData(org.apache.poi.xddf.usermodel.chart.ChartTypes.BAR, catAxis, valAxis);
-            barData.setBarDirection(org.apache.poi.xddf.usermodel.chart.BarDirection.COL);
-            barData.setBarGrouping(org.apache.poi.xddf.usermodel.chart.BarGrouping.CLUSTERED);
-
-            String[] names = {"p50", "p95", "p99"};
-            int[] seriesCols = {3, 4, 5};
-            byte[][] colors = {COLOR_GREEN, COLOR_ORANGE, COLOR_RED};
-
-            for (int si = 0; si < names.length; si++) {
-                var data = org.apache.poi.xddf.usermodel.chart.XDDFDataSourcesFactory.fromNumericCellRange(
-                        sheet, new CellRangeAddress(1, rows.size(), seriesCols[si], seriesCols[si]));
-                var series = (org.apache.poi.xddf.usermodel.chart.XDDFBarChartData.Series) barData.addSeries(cats, data);
-                series.setTitle(names[si], null);
-                series.setFillProperties(new org.apache.poi.xddf.usermodel.XDDFSolidFillProperties(
-                        xssfColor(colors[si])));
-            }
-
-            chart.plot(barData);
+            addBarChart(sheet, rows.size(), "Latenz-Vergleich alle Runs (s)",
+                    "Konfiguration", "Latenz (s)", 0,
+                    new ChartSeries("p50", 3, CLR_GREEN),
+                    new ChartSeries("p95", 4, CLR_ORANGE),
+                    new ChartSeries("p99", 5, CLR_RED));
         }
-
-        for (int c = 0; c < cols.length; c++) sheet.autoSizeColumn(c);
+        autoSizeColumns(sheet, cols.length);
     }
 
     private static void writeMergedStartupChart(XSSFWorkbook wb, Styles s, List<CsvRow> rows) {
         XSSFSheet sheet = wb.createSheet("Startup (alle Runs)");
-
         String[] cols = {"Config", "Timestamp", "JVM-Flags", "Readiness (ms)", "First Req (s)", "Throughput (req/s)"};
-        XSSFRow header = sheet.createRow(0);
-        header.setHeightInPoints(25);
-        for (int c = 0; c < cols.length; c++) {
-            XSSFCell cell = header.createCell(c);
-            cell.setCellValue(cols[c]);
-            cell.setCellStyle(s.header);
-        }
+        writeHeaderRow(sheet, 0, cols, s);
 
         for (int i = 0; i < rows.size(); i++) {
             CsvRow r = rows.get(i);
             XSSFRow row = sheet.createRow(i + 1);
-            CellStyle ds = (i % 2 == 0) ? s.data : s.dataStripe;
-            CellStyle ns = (i % 2 == 0) ? s.number : s.numberStripe;
-            CellStyle n4s = (i % 2 == 0) ? s.number4 : s.number4Stripe;
-
-            setCell(row, 0, r.configName, ds);
-            setCell(row, 1, r.timestamp, ds);
-            setCell(row, 2, r.jvmFlags, ds);
-            setCellNum(row, 3, r.readinessMs, ns);
-            setCellNum(row, 4, r.firstSeconds, n4s);
-            setCellNum(row, 5, r.throughput, ns);
+            setCell(row, 0, r.configName(),   pick(s, i, SK.TEXT));
+            setCell(row, 1, r.timestamp(),    pick(s, i, SK.TEXT));
+            setCell(row, 2, r.jvmFlags(),     pick(s, i, SK.TEXT));
+            setNum(row, 3, r.readinessMs(),   pick(s, i, SK.INT));
+            setNum(row, 4, r.firstSeconds(),  pick(s, i, SK.DEC4));
+            setNum(row, 5, r.throughput(),    pick(s, i, SK.INT));
         }
 
         if (rows.size() >= 2) {
-            XSSFDrawing drawing = sheet.createDrawingPatriarch();
-
-            XSSFClientAnchor anchor = drawing.createAnchor(0, 0, 0, 0,
-                    0, rows.size() + 3, 10, rows.size() + 17);
-            XSSFChart chart = drawing.createChart(anchor);
-            chart.setTitleText("Startup & Throughput alle Runs");
-
-            var catAxis = chart.createCategoryAxis(org.apache.poi.xddf.usermodel.chart.AxisPosition.BOTTOM);
-            var valAxis = chart.createValueAxis(org.apache.poi.xddf.usermodel.chart.AxisPosition.LEFT);
-
-            var cats = org.apache.poi.xddf.usermodel.chart.XDDFDataSourcesFactory.fromStringCellRange(
-                    sheet, new CellRangeAddress(1, rows.size(), 0, 0));
-
-            var barData = (org.apache.poi.xddf.usermodel.chart.XDDFBarChartData)
-                    chart.createData(org.apache.poi.xddf.usermodel.chart.ChartTypes.BAR, catAxis, valAxis);
-            barData.setBarDirection(org.apache.poi.xddf.usermodel.chart.BarDirection.COL);
-            barData.setBarGrouping(org.apache.poi.xddf.usermodel.chart.BarGrouping.CLUSTERED);
-
-            var readinessData = org.apache.poi.xddf.usermodel.chart.XDDFDataSourcesFactory.fromNumericCellRange(
-                    sheet, new CellRangeAddress(1, rows.size(), 3, 3));
-            var readSeries = (org.apache.poi.xddf.usermodel.chart.XDDFBarChartData.Series) barData.addSeries(cats, readinessData);
-            readSeries.setTitle("Readiness (ms)", null);
-            readSeries.setFillProperties(new org.apache.poi.xddf.usermodel.XDDFSolidFillProperties(
-                    xssfColor(COLOR_DARK_BLUE)));
-
-            var throughputData = org.apache.poi.xddf.usermodel.chart.XDDFDataSourcesFactory.fromNumericCellRange(
-                    sheet, new CellRangeAddress(1, rows.size(), 5, 5));
-            var tpSeries = (org.apache.poi.xddf.usermodel.chart.XDDFBarChartData.Series) barData.addSeries(cats, throughputData);
-            tpSeries.setTitle("Throughput (req/s)", null);
-            tpSeries.setFillProperties(new org.apache.poi.xddf.usermodel.XDDFSolidFillProperties(
-                    xssfColor(COLOR_GREEN)));
-
-            chart.plot(barData);
+            addBarChart(sheet, rows.size(), "Startup & Throughput alle Runs",
+                    "Konfiguration", null, 0,
+                    new ChartSeries("Readiness (ms)", 3, CLR_DARK_BLUE),
+                    new ChartSeries("Throughput (req/s)", 5, CLR_GREEN));
         }
-
-        for (int c = 0; c < cols.length; c++) sheet.autoSizeColumn(c);
+        autoSizeColumns(sheet, cols.length);
     }
 
     private static void writeMergedRessourcenNote(XSSFWorkbook wb, Styles s) {
         XSSFSheet sheet = wb.createSheet("Hinweis Ressourcen");
-        XSSFRow row = sheet.createRow(0);
-        setCell(row, 0, "Docker-Ressourcendaten (CPU%/Mem%) sind nur im Einzelrun-Excel enthalten,", s.data);
-        XSSFRow row2 = sheet.createRow(1);
-        setCell(row2, 0, "da die CSV-Dateien diese Daten nicht exportieren.", s.data);
-        XSSFRow row3 = sheet.createRow(2);
-        setCell(row3, 0, "Fuer Ressourcenvergleiche die Einzelrun-Excels nutzen.", s.data);
+        setCell(sheet.createRow(0), 0,
+                "Docker-Ressourcendaten (CPU%/Mem%) sind nur im Einzelrun-Excel enthalten,", s.text);
+        setCell(sheet.createRow(1), 0,
+                "da die CSV-Dateien diese Daten nicht exportieren.", s.text);
+        setCell(sheet.createRow(2), 0,
+                "Fuer Ressourcenvergleiche die Einzelrun-Excels nutzen.", s.text);
         sheet.autoSizeColumn(0);
     }
 
-    // ======================== CSV Parsing ========================
+    // ═══════════════════════════════════════════════════════════════════
+    //  CSV Parsing
+    // ═══════════════════════════════════════════════════════════════════
 
-    /**
-     * Zeile aus einer CSV-Datei mit Timestamp.
-     */
-    static class CsvRow {
-        String timestamp;
-        String scenario;
-        int workloadN;
-        String workloadPath;
-        String configName;
-        String dockerImage;
-        String jvmFlags;
-        double readinessMs;
-        double firstSeconds;
-        double p50;
-        double p95;
-        double p99;
-        double mean;
-        double totalMeasureTime;
-        double throughput;
-        int warmup;
-        int measureReqs;
-        int concurrency;
-        long sleepMs;
-    }
+    /** Repraesentiert eine Zeile aus einer exportierten CSV-Datei. */
+    record CsvRow(
+            String timestamp, String scenario, int workloadN, String workloadPath,
+            String configName, String dockerImage, String jvmFlags,
+            double readinessMs, double firstSeconds,
+            double p50, double p95, double p99, double mean,
+            double totalMeasureTime, double throughput,
+            int warmup, int measureReqs, int concurrency, long sleepMs
+    ) {}
 
     static List<CsvRow> parseCsv(Path csvFile, String timestamp) throws IOException {
         List<CsvRow> rows = new ArrayList<>();
@@ -784,182 +483,252 @@ public final class ExcelExporter {
 
             String[] headers = headerLine.split(",");
             Map<String, Integer> idx = new HashMap<>();
-            for (int i = 0; i < headers.length; i++) {
-                idx.put(headers[i].trim(), i);
-            }
+            for (int i = 0; i < headers.length; i++) idx.put(headers[i].trim(), i);
 
             String line;
             while ((line = br.readLine()) != null) {
                 if (line.isBlank()) continue;
                 String[] vals = parseCsvLine(line);
-                CsvRow r = new CsvRow();
-                r.timestamp = timestamp;
-                r.scenario = getVal(vals, idx, "scenario");
-                r.workloadN = getIntVal(vals, idx, "workloadN");
-                r.workloadPath = getVal(vals, idx, "workloadPath");
-                r.configName = getVal(vals, idx, "configName");
-                r.dockerImage = getVal(vals, idx, "dockerImage");
-                r.jvmFlags = getVal(vals, idx, "effectiveJavaToolOptions");
-                r.readinessMs = getDoubleVal(vals, idx, "readinessMs");
-                r.firstSeconds = getDoubleVal(vals, idx, "firstSeconds");
-                r.p50 = getDoubleVal(vals, idx, "latencyP50");
-                r.p95 = getDoubleVal(vals, idx, "latencyP95");
-                r.p99 = getDoubleVal(vals, idx, "latencyP99");
-                r.mean = getDoubleVal(vals, idx, "latencyMean");
-                r.totalMeasureTime = getDoubleVal(vals, idx, "totalMeasureTimeSeconds");
-                r.throughput = getDoubleVal(vals, idx, "throughputReqPerSec");
-                r.warmup = getIntVal(vals, idx, "warmupRequests");
-                r.measureReqs = getIntVal(vals, idx, "measureRequests");
-                r.concurrency = getIntVal(vals, idx, "concurrency");
-                r.sleepMs = (long) getDoubleVal(vals, idx, "sleepBetweenRequestsMs");
-                rows.add(r);
+                rows.add(new CsvRow(
+                        timestamp,
+                        getVal(vals, idx, "scenario"),
+                        getIntVal(vals, idx, "workloadN"),
+                        getVal(vals, idx, "workloadPath"),
+                        getVal(vals, idx, "configName"),
+                        getVal(vals, idx, "dockerImage"),
+                        getVal(vals, idx, "effectiveJavaToolOptions"),
+                        getDoubleVal(vals, idx, "readinessMs"),
+                        getDoubleVal(vals, idx, "firstSeconds"),
+                        getDoubleVal(vals, idx, "latencyP50"),
+                        getDoubleVal(vals, idx, "latencyP95"),
+                        getDoubleVal(vals, idx, "latencyP99"),
+                        getDoubleVal(vals, idx, "latencyMean"),
+                        getDoubleVal(vals, idx, "totalMeasureTimeSeconds"),
+                        getDoubleVal(vals, idx, "throughputReqPerSec"),
+                        getIntVal(vals, idx, "warmupRequests"),
+                        getIntVal(vals, idx, "measureRequests"),
+                        getIntVal(vals, idx, "concurrency"),
+                        (long) getDoubleVal(vals, idx, "sleepBetweenRequestsMs")
+                ));
             }
         }
         return rows;
     }
 
     static String extractTimestamp(String filename) {
-        // results-2026-03-05T11-49-59.609588200Z.csv → 2026-03-05T11:49:59
+        // results-2026-03-05T11-49-59.609588200Z.csv  →  2026-03-05 11:49:59
         String ts = filename.replace("results-", "").replace(".csv", "");
-        // Restore colons in time portion
         int tIdx = ts.indexOf('T');
         if (tIdx >= 0) {
             String datePart = ts.substring(0, tIdx);
             String timePart = ts.substring(tIdx + 1);
-            // Time: 11-49-59.xxx → 11:49:59
-            String[] timeParts = timePart.split("\\.");
-            String hms = timeParts[0].replace("-", ":");
+            String hms = timePart.split("\\.")[0].replace("-", ":");
             ts = datePart + " " + hms;
         }
         return ts;
     }
 
-    // ======================== Styles ========================
+    // ═══════════════════════════════════════════════════════════════════
+    //  Styles  (modernes, borderless Design)
+    // ═══════════════════════════════════════════════════════════════════
+
+    /** Kurzname fuer StyleKind – vermeidet lange Qualifizierungen in Datenzeilen. */
+    private enum SK { TEXT, INT, DEC4, PCT }
 
     private record Styles(
-            CellStyle header,
-            CellStyle sectionHeader,
-            CellStyle data,
-            CellStyle dataStripe,
-            CellStyle number,
-            CellStyle numberStripe,
-            CellStyle number4,
-            CellStyle number4Stripe,
-            CellStyle percent,
-            CellStyle percentStripe
+            CellStyle header, CellStyle sectionHeader,
+            CellStyle text, CellStyle textStripe,
+            CellStyle integer, CellStyle integerStripe,
+            CellStyle dec4, CellStyle dec4Stripe,
+            CellStyle pct, CellStyle pctStripe
     ) {}
 
+    /** Waehlt anhand von Zeilenindex und Typ den passenden Style (normal / Zebra). */
+    private static CellStyle pick(Styles s, int rowIndex, SK kind) {
+        boolean stripe = rowIndex % 2 != 0;
+        return switch (kind) {
+            case TEXT -> stripe ? s.textStripe : s.text;
+            case INT  -> stripe ? s.integerStripe : s.integer;
+            case DEC4 -> stripe ? s.dec4Stripe : s.dec4;
+            case PCT  -> stripe ? s.pctStripe : s.pct;
+        };
+    }
+
     private static Styles createStyles(XSSFWorkbook wb) {
-        // --- Fonts ---
         XSSFFont headerFont = wb.createFont();
         headerFont.setBold(true);
-        headerFont.setFontHeightInPoints((short) 10);
-        headerFont.setColor(new XSSFColor(COLOR_HEADER_FG, null));
+        headerFont.setFontHeightInPoints((short) 11);
+        headerFont.setFontName("Calibri");
+        headerFont.setColor(new XSSFColor(CLR_WHITE, null));
 
         XSSFFont sectionFont = wb.createFont();
         sectionFont.setBold(true);
         sectionFont.setFontHeightInPoints((short) 10);
+        sectionFont.setFontName("Calibri");
 
         XSSFFont dataFont = wb.createFont();
         dataFont.setFontHeightInPoints((short) 10);
+        dataFont.setFontName("Calibri");
 
-        // --- DataFormats ---
         DataFormat df = wb.createDataFormat();
-        short fmtInt = df.getFormat("#,##0");
-        short fmt4 = df.getFormat("0.0000");
-        short fmtPct = df.getFormat("0.00\"%\"");
+        short fmtInt  = df.getFormat("#,##0");
+        short fmtDec4 = df.getFormat("0.0000");
+        short fmtPct  = df.getFormat("0.00\"%\"");
 
-        // --- Header ---
-        XSSFCellStyle headerStyle = wb.createCellStyle();
-        headerStyle.setFont(headerFont);
-        headerStyle.setFillForegroundColor(new XSSFColor(COLOR_HEADER_BG, null));
-        headerStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
-        headerStyle.setAlignment(HorizontalAlignment.CENTER);
-        headerStyle.setVerticalAlignment(VerticalAlignment.CENTER);
-        headerStyle.setWrapText(true);
-        setBorders(headerStyle);
+        // Header: dunkelblau, weisse Schrift, Akzent-Rand unten
+        XSSFCellStyle hdr = wb.createCellStyle();
+        hdr.setFont(headerFont);
+        hdr.setFillForegroundColor(new XSSFColor(CLR_PRIMARY, null));
+        hdr.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+        hdr.setAlignment(HorizontalAlignment.CENTER);
+        hdr.setVerticalAlignment(VerticalAlignment.CENTER);
+        hdr.setWrapText(true);
+        hdr.setBorderBottom(BorderStyle.MEDIUM);
 
-        // --- Section Header ---
-        XSSFCellStyle sectionStyle = wb.createCellStyle();
-        sectionStyle.setFont(sectionFont);
-        sectionStyle.setFillForegroundColor(new XSSFColor(COLOR_SECTION_BG, null));
-        sectionStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
-        sectionStyle.setAlignment(HorizontalAlignment.CENTER);
-        setBorders(sectionStyle);
+        // Section-Header: helles Blau
+        XSSFCellStyle sec = wb.createCellStyle();
+        sec.setFont(sectionFont);
+        sec.setFillForegroundColor(new XSSFColor(CLR_PRIMARY_LT, null));
+        sec.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+        sec.setAlignment(HorizontalAlignment.CENTER);
+        sec.setVerticalAlignment(VerticalAlignment.CENTER);
 
-        // --- Data ---
-        XSSFCellStyle dataStyle = wb.createCellStyle();
-        dataStyle.setFont(dataFont);
-        setBorders(dataStyle);
+        // Datenzellen (borderless, feiner Haarlinie-Separator unten)
+        CellStyle txt     = cellStyle(wb, dataFont, null, null);
+        CellStyle txtS    = cellStyle(wb, dataFont, CLR_STRIPE, null);
+        CellStyle intN    = cellStyle(wb, dataFont, null, fmtInt);
+        CellStyle intS    = cellStyle(wb, dataFont, CLR_STRIPE, fmtInt);
+        CellStyle dec4N   = cellStyle(wb, dataFont, null, fmtDec4);
+        CellStyle dec4S   = cellStyle(wb, dataFont, CLR_STRIPE, fmtDec4);
+        CellStyle pctN    = cellStyle(wb, dataFont, null, fmtPct);
+        CellStyle pctS    = cellStyle(wb, dataFont, CLR_STRIPE, fmtPct);
 
-        XSSFCellStyle dataStripeStyle = wb.createCellStyle();
-        dataStripeStyle.setFont(dataFont);
-        dataStripeStyle.setFillForegroundColor(new XSSFColor(COLOR_STRIPE_BG, null));
-        dataStripeStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
-        setBorders(dataStripeStyle);
-
-        // --- Number (int) ---
-        XSSFCellStyle numStyle = wb.createCellStyle();
-        numStyle.setFont(dataFont);
-        numStyle.setDataFormat(fmtInt);
-        numStyle.setAlignment(HorizontalAlignment.RIGHT);
-        setBorders(numStyle);
-
-        XSSFCellStyle numStripeStyle = wb.createCellStyle();
-        numStripeStyle.setFont(dataFont);
-        numStripeStyle.setDataFormat(fmtInt);
-        numStripeStyle.setAlignment(HorizontalAlignment.RIGHT);
-        numStripeStyle.setFillForegroundColor(new XSSFColor(COLOR_STRIPE_BG, null));
-        numStripeStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
-        setBorders(numStripeStyle);
-
-        // --- Number (4 decimal) ---
-        XSSFCellStyle num4Style = wb.createCellStyle();
-        num4Style.setFont(dataFont);
-        num4Style.setDataFormat(fmt4);
-        num4Style.setAlignment(HorizontalAlignment.RIGHT);
-        setBorders(num4Style);
-
-        XSSFCellStyle num4StripeStyle = wb.createCellStyle();
-        num4StripeStyle.setFont(dataFont);
-        num4StripeStyle.setDataFormat(fmt4);
-        num4StripeStyle.setAlignment(HorizontalAlignment.RIGHT);
-        num4StripeStyle.setFillForegroundColor(new XSSFColor(COLOR_STRIPE_BG, null));
-        num4StripeStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
-        setBorders(num4StripeStyle);
-
-        // --- Percent ---
-        XSSFCellStyle pctStyle = wb.createCellStyle();
-        pctStyle.setFont(dataFont);
-        pctStyle.setDataFormat(fmtPct);
-        pctStyle.setAlignment(HorizontalAlignment.RIGHT);
-        setBorders(pctStyle);
-
-        XSSFCellStyle pctStripeStyle = wb.createCellStyle();
-        pctStripeStyle.setFont(dataFont);
-        pctStripeStyle.setDataFormat(fmtPct);
-        pctStripeStyle.setAlignment(HorizontalAlignment.RIGHT);
-        pctStripeStyle.setFillForegroundColor(new XSSFColor(COLOR_STRIPE_BG, null));
-        pctStripeStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
-        setBorders(pctStripeStyle);
-
-        return new Styles(
-                headerStyle, sectionStyle,
-                dataStyle, dataStripeStyle,
-                numStyle, numStripeStyle,
-                num4Style, num4StripeStyle,
-                pctStyle, pctStripeStyle
-        );
+        return new Styles(hdr, sec, txt, txtS, intN, intS, dec4N, dec4S, pctN, pctS);
     }
 
-    private static void setBorders(CellStyle style) {
-        style.setBorderBottom(BorderStyle.THIN);
-        style.setBorderTop(BorderStyle.THIN);
-        style.setBorderLeft(BorderStyle.THIN);
-        style.setBorderRight(BorderStyle.THIN);
+    /** Erzeugt einen Datenstyle: optionaler Hintergrund, optionales Zahlenformat, rechtsbuendig bei Zahlen. */
+    private static XSSFCellStyle cellStyle(XSSFWorkbook wb, XSSFFont font, byte[] bg, Short numFmt) {
+        XSSFCellStyle cs = wb.createCellStyle();
+        cs.setFont(font);
+        cs.setVerticalAlignment(VerticalAlignment.CENTER);
+        if (bg != null) {
+            cs.setFillForegroundColor(new XSSFColor(bg, null));
+            cs.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+        }
+        if (numFmt != null) {
+            cs.setDataFormat(numFmt);
+            cs.setAlignment(HorizontalAlignment.RIGHT);
+        }
+        // Dezenter Haarlinie-Rand unten fuer visuelle Zeilentrennung
+        cs.setBorderBottom(BorderStyle.HAIR);
+        cs.setBottomBorderColor(new XSSFColor(rgb(0xE0, 0xE0, 0xE0), null));
+        return cs;
     }
 
-    // ======================== Helpers ========================
+    // ═══════════════════════════════════════════════════════════════════
+    //  Diagramm-Helfer (eliminiert fuenffache Duplikation)
+    // ═══════════════════════════════════════════════════════════════════
+
+    /**
+     * Erzeugt ein gruppiertes Balkendiagramm unterhalb der Datentabelle.
+     * Chart wird ab {@code dataRows + 3} platziert (Standard-Offset 0).
+     */
+    private static void addBarChart(XSSFSheet sheet, int dataRows,
+                                    String title, String catLabel, String valLabel,
+                                    int catCol, ChartSeries... series) {
+        addBarChart(sheet, dataRows, title, catLabel, valLabel, catCol, 0, series);
+    }
+
+    /**
+     * Erzeugt ein gruppiertes Balkendiagramm mit konfigurierbarem vertikalen Offset.
+     *
+     * @param sheet       Ziel-Sheet
+     * @param dataRows    Anzahl Datenzeilen (ohne Header)
+     * @param title       Diagramm-Titel
+     * @param catLabel    Achsenbeschriftung Kategorie (oder null)
+     * @param valLabel    Achsenbeschriftung Wert (oder null)
+     * @param catCol      Spalte mit Kategorie-Labels (Config-Namen)
+     * @param extraOffset Zusaetzlicher vertikaler Offset (Zeilen) unter der Standard-Position
+     * @param series      Datenreihen (Titel, Spalte, Farbe)
+     */
+    private static void addBarChart(XSSFSheet sheet, int dataRows,
+                                    String title, String catLabel, String valLabel,
+                                    int catCol, int extraOffset, ChartSeries... series) {
+        int chartHeight = Math.max(12, dataRows * 2);
+        int startRow = dataRows + 3 + extraOffset;
+
+        XSSFDrawing drawing = sheet.createDrawingPatriarch();
+        XSSFClientAnchor anchor = drawing.createAnchor(
+                0, 0, 0, 0, 0, startRow, 10, startRow + chartHeight);
+
+        XSSFChart chart = drawing.createChart(anchor);
+        chart.setTitleText(title);
+        chart.setTitleOverlay(false);
+
+        XDDFChartAxis catAxis = chart.createCategoryAxis(AxisPosition.BOTTOM);
+        if (catLabel != null) catAxis.setTitle(catLabel);
+
+        XDDFValueAxis valAxis = chart.createValueAxis(AxisPosition.LEFT);
+        if (valLabel != null) valAxis.setTitle(valLabel);
+        valAxis.setCrossBetween(AxisCrossBetween.BETWEEN);
+
+        XDDFDataSource<String> cats = XDDFDataSourcesFactory.fromStringCellRange(
+                sheet, new CellRangeAddress(1, dataRows, catCol, catCol));
+
+        XDDFBarChartData barData = (XDDFBarChartData)
+                chart.createData(ChartTypes.BAR, catAxis, valAxis);
+        barData.setBarDirection(BarDirection.COL);
+        if (series.length > 1) barData.setBarGrouping(BarGrouping.CLUSTERED);
+        barData.setGapWidth(150);
+
+        for (ChartSeries sd : series) {
+            XDDFNumericalDataSource<Double> data = XDDFDataSourcesFactory.fromNumericCellRange(
+                    sheet, new CellRangeAddress(1, dataRows, sd.column(), sd.column()));
+            XDDFBarChartData.Series bs = (XDDFBarChartData.Series) barData.addSeries(cats, data);
+            bs.setTitle(sd.title(), null);
+            bs.setFillProperties(new XDDFSolidFillProperties(XDDFColor.from(sd.color())));
+        }
+
+        chart.plot(barData);
+
+        // Legende unten platzieren
+        XDDFChartLegend legend = chart.getOrAddLegend();
+        legend.setPosition(LegendPosition.BOTTOM);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  Bedingte Formatierung (Farbskala gruen → gelb → rot)
+    // ═══════════════════════════════════════════════════════════════════
+
+    /**
+     * Fuegt eine 3-Farb-Skala (gruen → orange → rot) fuer die angegebenen Spalten hinzu.
+     * Niedrige Werte = gruen, mittlere = orange, hohe = rot.
+     */
+    private static void addColorScale(XSSFSheet sheet, int firstRow, int lastRow,
+                                      int firstCol, int lastCol) {
+        SheetConditionalFormatting scf = sheet.getSheetConditionalFormatting();
+        for (int col = firstCol; col <= lastCol; col++) {
+            CellRangeAddress[] range = {new CellRangeAddress(firstRow, lastRow, col, col)};
+            ConditionalFormattingRule rule = scf.createConditionalFormattingColorScaleRule();
+            ColorScaleFormatting csf = rule.getColorScaleFormatting();
+
+            csf.getThresholds()[0].setRangeType(ConditionalFormattingThreshold.RangeType.MIN);
+            csf.getThresholds()[1].setRangeType(ConditionalFormattingThreshold.RangeType.PERCENTILE);
+            csf.getThresholds()[1].setValue(50d);
+            csf.getThresholds()[2].setRangeType(ConditionalFormattingThreshold.RangeType.MAX);
+
+            Color[] colors = csf.getColors();
+            ((ExtendedColor) colors[0]).setARGBHex("FF27AE60");  // gruen
+            ((ExtendedColor) colors[1]).setARGBHex("FFF39C12");  // orange
+            ((ExtendedColor) colors[2]).setARGBHex("FFE74C3C");  // rot
+
+            scf.addConditionalFormatting(range, rule);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  Zell- und Sheet-Helfer
+    // ═══════════════════════════════════════════════════════════════════
 
     private static void setCell(XSSFRow row, int col, String value, CellStyle style) {
         XSSFCell cell = row.createCell(col);
@@ -967,14 +736,21 @@ public final class ExcelExporter {
         cell.setCellStyle(style);
     }
 
-    private static void setCellNum(XSSFRow row, int col, double value, CellStyle style) {
+    private static void setNum(XSSFRow row, int col, double value, CellStyle style) {
         XSSFCell cell = row.createCell(col);
-        if (Double.isNaN(value)) {
-            cell.setCellValue("");
-        } else {
-            cell.setCellValue(value);
-        }
+        if (Double.isNaN(value)) cell.setCellValue("");
+        else                     cell.setCellValue(value);
         cell.setCellStyle(style);
+    }
+
+    private static void writeHeaderRow(XSSFSheet sheet, int rowNum, String[] headers, Styles s) {
+        XSSFRow row = sheet.createRow(rowNum);
+        row.setHeightInPoints(32);
+        for (int c = 0; c < headers.length; c++) {
+            XSSFCell cell = row.createCell(c);
+            cell.setCellValue(headers[c]);
+            cell.setCellStyle(s.header);
+        }
     }
 
     private static void writeSectionHeaders(XSSFRow row, Styles s, String[] sections) {
@@ -991,27 +767,46 @@ public final class ExcelExporter {
         }
     }
 
+    /** Auto-sizes alle Spalten mit Min 12 / Max 35 Zeichen Breite. */
+    private static void autoSizeColumns(XSSFSheet sheet, int colCount) {
+        for (int c = 0; c < colCount; c++) {
+            sheet.autoSizeColumn(c);
+            int w = sheet.getColumnWidth(c);
+            sheet.setColumnWidth(c, Math.max(w, 12 * 256));
+            if (w > 35 * 256) sheet.setColumnWidth(c, 35 * 256);
+        }
+    }
+
     private static String normalizeFlags(String flags) {
         if (flags == null) return "(native)";
         if (flags.isBlank()) return "(keine)";
         return flags;
     }
 
-    /**
-     * Erzeugt eine XDDF-kompatible Farbe aus einem RGB-Byte-Array.
-     */
-    private static org.apache.poi.xddf.usermodel.XDDFColor xssfColor(byte[] rgb) {
-        return org.apache.poi.xddf.usermodel.XDDFColor.from(rgb);
-    }
-
     private static double percentile(List<Double> sorted, double p) {
         if (sorted == null || sorted.isEmpty()) return Double.NaN;
         int idx = (int) Math.ceil(p * sorted.size()) - 1;
-        idx = Math.max(0, Math.min(idx, sorted.size() - 1));
-        return sorted.get(idx);
+        return sorted.get(Math.max(0, Math.min(idx, sorted.size() - 1)));
     }
 
+    /** Kopiert und sortiert eine Latenzliste. */
+    private static List<Double> sorted(List<Double> lats) {
+        List<Double> copy = new ArrayList<>(lats);
+        copy.sort(Double::compareTo);
+        return copy;
+    }
+
+    // ───────────────────── Docker-Statistik Aggregation ─────────────────────
+
     private record DockerPhaseAvg(double cpuAvg, double memAvg, double memMax) {}
+
+    @FunctionalInterface
+    private interface PhaseField { double get(DockerPhaseAvg a); }
+
+    /** Gibt den Feldwert zurueck oder NaN wenn die Phase null ist. */
+    private static double dval(DockerPhaseAvg phase, PhaseField fn) {
+        return phase != null ? fn.get(phase) : Double.NaN;
+    }
 
     private static DockerPhaseAvg phaseAvg(List<DockerStatSample> samples) {
         if (samples == null || samples.isEmpty()) return null;
@@ -1024,7 +819,9 @@ public final class ExcelExporter {
         return new DockerPhaseAvg(cpuSum / samples.size(), memSum / samples.size(), memMax);
     }
 
-    private static String[] parseCsvLine(String line) {
+    // ───────────────────── CSV-Zeilen-Parser ─────────────────────
+
+    static String[] parseCsvLine(String line) {
         List<String> fields = new ArrayList<>();
         boolean inQuotes = false;
         StringBuilder sb = new StringBuilder();
@@ -1041,15 +838,13 @@ public final class ExcelExporter {
                 } else {
                     sb.append(c);
                 }
+            } else if (c == '"') {
+                inQuotes = true;
+            } else if (c == ',') {
+                fields.add(sb.toString());
+                sb.setLength(0);
             } else {
-                if (c == '"') {
-                    inQuotes = true;
-                } else if (c == ',') {
-                    fields.add(sb.toString());
-                    sb.setLength(0);
-                } else {
-                    sb.append(c);
-                }
+                sb.append(c);
             }
         }
         fields.add(sb.toString());
@@ -1058,8 +853,7 @@ public final class ExcelExporter {
 
     private static String getVal(String[] vals, Map<String, Integer> idx, String key) {
         Integer i = idx.get(key);
-        if (i == null || i >= vals.length) return "";
-        return vals[i];
+        return (i == null || i >= vals.length) ? "" : vals[i];
     }
 
     private static double getDoubleVal(String[] vals, Map<String, Integer> idx, String key) {
