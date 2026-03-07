@@ -74,6 +74,8 @@ public final class ExcelExporter {
             writeLatenzen(wb, styles, results);
             writeStartupThroughput(wb, styles, results);
             writeRessourcen(wb, styles, results);
+            writeGcVerhalten(wb, styles, results);
+            writeGcTimeline(wb, styles, results);
             writeRohdaten(wb, styles, results);
 
             try (OutputStream os = Files.newOutputStream(path)) { wb.write(os); }
@@ -135,6 +137,7 @@ public final class ExcelExporter {
                 "Messzeit (s)", "Throughput (req/s)",
                 "CPU% (LOAD avg)", "Mem% (LOAD avg)", "Mem% (LOAD max)",
                 "Mem% (IDLE avg)",
+                "GC Count", "Full GC Count", "GC Pause Total (ms)", "GC Max Pause (ms)", "GC Overhead (%)", "Peak Heap nach GC (MB)",
                 "Warmup", "Mess-Req", "Concurrency", "Sleep (ms)",
                 "Workload-Pfad", "Workload-N", "Repetition"
         };
@@ -149,16 +152,19 @@ public final class ExcelExporter {
                 "Durchsatz", "",
                 "Docker (LOAD)", "", "",
                 "Docker (IDLE)",
+                "GC-Verhalten", "", "", "", "", "",
                 "Messprofil", "", "", "",
                 "Meta", "", ""
         });
-        mergeIfValid(sheet, 0, 0, 0, 3);
-        mergeIfValid(sheet, 0, 0, 4, 5);
-        mergeIfValid(sheet, 0, 0, 6, 10);
-        mergeIfValid(sheet, 0, 0, 11, 12);
-        mergeIfValid(sheet, 0, 0, 13, 15);
-        mergeIfValid(sheet, 0, 0, 17, 20);
-        mergeIfValid(sheet, 0, 0, 21, 23);
+        mergeIfValid(sheet, 0, 0, 0, 3);    // Konfiguration  (4 cols)
+        mergeIfValid(sheet, 0, 0, 4, 5);    // Startup         (2 cols)
+        mergeIfValid(sheet, 0, 0, 6, 10);   // Latenzen        (5 cols)
+        mergeIfValid(sheet, 0, 0, 11, 12);  // Durchsatz       (2 cols)
+        mergeIfValid(sheet, 0, 0, 13, 15);  // Docker (LOAD)   (3 cols)
+        // col 16 = Docker (IDLE) – single col, no merge
+        mergeIfValid(sheet, 0, 0, 17, 22);  // GC-Verhalten    (6 cols)
+        mergeIfValid(sheet, 0, 0, 23, 26);  // Messprofil      (4 cols)
+        mergeIfValid(sheet, 0, 0, 27, 29);  // Meta            (3 cols)
 
         writeHeaderRow(sheet, 1, headers, s);
 
@@ -196,6 +202,24 @@ public final class ExcelExporter {
             setNum(row, c++, dval(load, a -> a.memMax), pick(s, i, SK.PCT));
             setNum(row, c++, dval(idle, a -> a.memAvg), pick(s, i, SK.PCT));
 
+            // GC-Verhalten
+            GcSummary gc = r.gcSummary();
+            if (gc != null) {
+                setNum(row, c++, gc.gcCount(),              pick(s, i, SK.INT));
+                setNum(row, c++, gc.fullGcCount(),          pick(s, i, SK.INT));
+                setNum(row, c++, gc.totalPauseMs(),         pick(s, i, SK.DEC4));
+                setNum(row, c++, gc.maxPauseMs(),           pick(s, i, SK.DEC4));
+                setNum(row, c++, gc.gcOverheadPercent(),    pick(s, i, SK.PCT));
+                setNum(row, c++, gc.peakHeapAfterGcKb() / 1024.0, pick(s, i, SK.INT));
+            } else {
+                setNum(row, c++, Double.NaN, pick(s, i, SK.INT));
+                setNum(row, c++, Double.NaN, pick(s, i, SK.INT));
+                setNum(row, c++, Double.NaN, pick(s, i, SK.DEC4));
+                setNum(row, c++, Double.NaN, pick(s, i, SK.DEC4));
+                setNum(row, c++, Double.NaN, pick(s, i, SK.PCT));
+                setNum(row, c++, Double.NaN, pick(s, i, SK.INT));
+            }
+
             setNum(row, c++, p.warmupRequests(),          pick(s, i, SK.INT));
             setNum(row, c++, p.measureRequests(),         pick(s, i, SK.INT));
             setNum(row, c++, p.concurrency(),             pick(s, i, SK.INT));
@@ -213,6 +237,8 @@ public final class ExcelExporter {
         addColorScale(sheet, 2, 1 + results.size(), 6, 8);
         // Bedingte Farbskala: Ressourcen (CPU% LOAD=13 bis Mem% IDLE=16)
         addColorScale(sheet, 2, 1 + results.size(), 13, 16);
+        // Bedingte Farbskala: GC Max Pause=20, GC Overhead=21
+        addColorScale(sheet, 2, 1 + results.size(), 20, 21);
 
         autoSizeColumns(sheet, headers.length);
     }
@@ -350,6 +376,160 @@ public final class ExcelExporter {
 
         sheet.createFreezePane(0, 1);
         autoSizeColumns(sheet, cols.length);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  Sheet 6: GC-Verhalten (Level 2 – aggregierte GC-Kennzahlen)
+    // ═══════════════════════════════════════════════════════════════════
+
+    private static void writeGcVerhalten(XSSFWorkbook wb, Styles s, List<RunResult> results) {
+        XSSFSheet sheet = wb.createSheet("GC-Verhalten");
+        String[] cols = {
+                "Config", "JVM-Flags",
+                "GC Count", "Full GC",
+                "Total Pause (ms)", "Max Pause (ms)",
+                "Overhead (%)", "Peak Heap (MB)"
+        };
+        writeHeaderRow(sheet, 0, cols, s);
+
+        for (int i = 0; i < results.size(); i++) {
+            RunResult r = results.get(i);
+            GcSummary gc = r.gcSummary();
+            XSSFRow row = sheet.createRow(i + 1);
+
+            setCell(row, 0, r.configName(),                              pick(s, i, SK.TEXT));
+            setCell(row, 1, normalizeFlags(r.effectiveJavaToolOptions()), pick(s, i, SK.TEXT));
+
+            if (gc != null) {
+                setNum(row, 2, gc.gcCount(),           pick(s, i, SK.INT));
+                setNum(row, 3, gc.fullGcCount(),       pick(s, i, SK.INT));
+                setNum(row, 4, gc.totalPauseMs(),      pick(s, i, SK.DEC4));
+                setNum(row, 5, gc.maxPauseMs(),        pick(s, i, SK.DEC4));
+                setNum(row, 6, gc.gcOverheadPercent(), pick(s, i, SK.PCT));
+                setNum(row, 7, gc.peakHeapAfterGcKb() / 1024.0, pick(s, i, SK.INT));
+            } else {
+                for (int c = 2; c < cols.length; c++) {
+                    setNum(row, c, Double.NaN, pick(s, i, SK.INT));
+                }
+            }
+        }
+
+        if (results.size() >= 2) {
+            // Chart 1: GC-Pausen-Vergleich (Total Pause + Max Pause)
+            addBarChart(sheet, results.size(), "GC-Pausen-Vergleich",
+                    "Konfiguration", "Pause (ms)", 0,
+                    new ChartSeries("Total Pause (ms)", 4, CLR_DARK_BLUE),
+                    new ChartSeries("Max Pause (ms)", 5, CLR_RED));
+
+            // Chart 2: GC Overhead (%) – unterhalb des ersten Charts
+            int chartHeight = Math.max(12, results.size() * 2);
+            addBarChart(sheet, results.size(), "GC Overhead (%)",
+                    "Konfiguration", "Overhead (%)", 0, chartHeight + 4,
+                    new ChartSeries("Overhead (%)", 6, CLR_ORANGE));
+        }
+        autoSizeColumns(sheet, cols.length);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  Sheet 7: GC-Timeline (Level 3 – einzelne GC-Events + Scatter)
+    // ═══════════════════════════════════════════════════════════════════
+
+    private static void writeGcTimeline(XSSFWorkbook wb, Styles s, List<RunResult> results) {
+        XSSFSheet sheet = wb.createSheet("GC-Timeline");
+        String[] cols = {
+                "Config", "GC#", "Timestamp (s)", "Type", "Cause",
+                "Heap Before (MB)", "Heap After (MB)", "Heap Max (MB)", "Pause (ms)"
+        };
+        writeHeaderRow(sheet, 0, cols, s);
+
+        // Daten schreiben + Bereichsgrenzen pro Config merken (fuer Scatter-Serien)
+        List<String> configNames = new ArrayList<>();
+        List<int[]> configRanges = new ArrayList<>();   // [firstDataRow, lastDataRow] (0-indexed sheet rows)
+
+        int rowIdx = 1;
+        for (RunResult r : results) {
+            GcSummary gc = r.gcSummary();
+            if (gc == null || gc.events().isEmpty()) continue;
+
+            int firstRow = rowIdx;
+            List<GcEvent> events = gc.events();
+            for (int j = 0; j < events.size(); j++) {
+                GcEvent ev = events.get(j);
+                XSSFRow row = sheet.createRow(rowIdx);
+                int stripe = rowIdx - 1;
+                setCell(row, 0, r.configName(),          pick(s, stripe, SK.TEXT));
+                setNum(row, 1, j + 1,                   pick(s, stripe, SK.INT));
+                setNum(row, 2, ev.timestampSeconds(),    pick(s, stripe, SK.DEC4));
+                setCell(row, 3, ev.gcType(),             pick(s, stripe, SK.TEXT));
+                setCell(row, 4, ev.gcCause(),            pick(s, stripe, SK.TEXT));
+                setNum(row, 5, ev.heapBeforeKb() >= 0 ? ev.heapBeforeKb() / 1024.0 : Double.NaN,
+                        pick(s, stripe, SK.INT));
+                setNum(row, 6, ev.heapAfterKb() >= 0 ? ev.heapAfterKb() / 1024.0 : Double.NaN,
+                        pick(s, stripe, SK.INT));
+                setNum(row, 7, ev.heapMaxKb() >= 0 ? ev.heapMaxKb() / 1024.0 : Double.NaN,
+                        pick(s, stripe, SK.INT));
+                setNum(row, 8, ev.pauseMs(),             pick(s, stripe, SK.DEC4));
+                rowIdx++;
+            }
+            configNames.add(r.configName());
+            configRanges.add(new int[]{firstRow, rowIdx - 1});
+        }
+
+        sheet.createFreezePane(0, 1);
+        autoSizeColumns(sheet, cols.length);
+
+        // Scatter-Chart: X = Timestamp (s), Y = Pause (ms), eine Serie pro Config
+        if (configNames.size() >= 1 && rowIdx > 1) {
+            int chartStartRow = rowIdx + 2;
+            int chartHeight = Math.max(15, configNames.size() * 3);
+
+            XSSFDrawing drawing = sheet.createDrawingPatriarch();
+            XSSFClientAnchor anchor = drawing.createAnchor(
+                    0, 0, 0, 0, 0, chartStartRow, 12, chartStartRow + chartHeight);
+
+            XSSFChart chart = drawing.createChart(anchor);
+            chart.setTitleText("GC-Pausen Timeline");
+            chart.setTitleOverlay(false);
+
+            XDDFValueAxis xAxis = chart.createValueAxis(AxisPosition.BOTTOM);
+            xAxis.setTitle("Timestamp (s)");
+            XDDFValueAxis yAxis = chart.createValueAxis(AxisPosition.LEFT);
+            yAxis.setTitle("Pause (ms)");
+            yAxis.setCrossBetween(AxisCrossBetween.BETWEEN);
+
+            XDDFScatterChartData scatterData = (XDDFScatterChartData)
+                    chart.createData(ChartTypes.SCATTER, xAxis, yAxis);
+            scatterData.setStyle(ScatterStyle.LINE_MARKER);
+
+            // Farbpalette fuer Serien (rotiert bei >6 Configs)
+            byte[][] seriesColors = {
+                    CLR_DARK_BLUE, CLR_RED, CLR_GREEN, CLR_ORANGE,
+                    rgb(0x8E, 0x44, 0xAD), rgb(0x16, 0xA0, 0x85)
+            };
+
+            for (int i = 0; i < configNames.size(); i++) {
+                int[] range = configRanges.get(i);
+                // X = Timestamp (col 2), Y = Pause (col 8)
+                XDDFNumericalDataSource<Double> xData = XDDFDataSourcesFactory.fromNumericCellRange(
+                        sheet, new CellRangeAddress(range[0], range[1], 2, 2));
+                XDDFNumericalDataSource<Double> yData = XDDFDataSourcesFactory.fromNumericCellRange(
+                        sheet, new CellRangeAddress(range[0], range[1], 8, 8));
+
+                XDDFScatterChartData.Series series =
+                        (XDDFScatterChartData.Series) scatterData.addSeries(xData, yData);
+                series.setTitle(configNames.get(i), null);
+
+                byte[] color = seriesColors[i % seriesColors.length];
+                series.setMarkerStyle(MarkerStyle.CIRCLE);
+                series.setMarkerSize((short) 5);
+                series.setFillProperties(new XDDFSolidFillProperties(XDDFColor.from(color)));
+            }
+
+            chart.plot(scatterData);
+
+            XDDFChartLegend legend = chart.getOrAddLegend();
+            legend.setPosition(LegendPosition.BOTTOM);
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════

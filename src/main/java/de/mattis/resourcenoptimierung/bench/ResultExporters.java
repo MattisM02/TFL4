@@ -45,6 +45,7 @@ public final class ResultExporters {
                     "totalMeasureTimeSeconds,throughputReqPerSec," +
                     "warmupRequests,measureRequests,concurrency,sleepBetweenRequestsMs," +
                     "cpuLoadAvg,memLoadAvg,memLoadMax," +
+                    "gcCount,gcFullCount,gcTotalPauseMs,gcMaxPauseMs,gcOverheadPercent,gcPeakHeapAfterMb," +
                     "repetition");
             w.newLine();
 
@@ -96,6 +97,21 @@ public final class ResultExporters {
                 w.write(Double.toString(cpuLoadAvg)); w.write(",");
                 w.write(Double.toString(memLoadAvg)); w.write(",");
                 w.write(Double.toString(memLoadMax)); w.write(",");
+
+                // --- GC-Kennzahlen ---
+                GcSummary gc = r.gcSummary();
+                if (gc != null) {
+                    w.write(Integer.toString(gc.gcCount())); w.write(",");
+                    w.write(Integer.toString(gc.fullGcCount())); w.write(",");
+                    w.write(Double.toString(gc.totalPauseMs())); w.write(",");
+                    w.write(Double.toString(gc.maxPauseMs())); w.write(",");
+                    w.write(Double.toString(gc.gcOverheadPercent())); w.write(",");
+                    w.write(Double.toString(gc.peakHeapAfterGcKb() / 1024.0));
+                } else {
+                    w.write(",,,,,");   // 6 leere Felder
+                }
+                w.write(",");
+
                 w.write(Integer.toString(r.repetition()));
                 w.newLine();
             }
@@ -148,6 +164,22 @@ public final class ResultExporters {
             sb.append("\"concurrency\":").append(p.concurrency()).append(",");
             sb.append("\"sleepBetweenRequestsMs\":").append(p.sleepBetweenRequestsMs());
             sb.append("},");
+
+            // GC-Kennzahlen
+            GcSummary gc = r.gcSummary();
+            if (gc != null) {
+                sb.append("\"gcSummary\":{");
+                sb.append("\"gcCount\":").append(gc.gcCount()).append(",");
+                sb.append("\"fullGcCount\":").append(gc.fullGcCount()).append(",");
+                sb.append("\"totalPauseMs\":").append(gc.totalPauseMs()).append(",");
+                sb.append("\"maxPauseMs\":").append(gc.maxPauseMs()).append(",");
+                sb.append("\"avgPauseMs\":").append(gc.avgPauseMs()).append(",");
+                sb.append("\"gcOverheadPercent\":").append(gc.gcOverheadPercent()).append(",");
+                sb.append("\"peakHeapAfterGcKb\":").append(gc.peakHeapAfterGcKb());
+                sb.append("},");
+            } else {
+                sb.append("\"gcSummary\":null,");
+            }
 
             // Repetition
             sb.append("\"repetition\":").append(r.repetition());

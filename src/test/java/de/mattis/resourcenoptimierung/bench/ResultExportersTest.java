@@ -37,7 +37,9 @@ class ResultExportersTest {
                 List.of(),
                 List.of(),
                 List.of(),
-                1
+                1,
+                null,
+                null
         );
     }
 
@@ -124,7 +126,7 @@ class ResultExportersTest {
                 "", ReadinessCheckUsed.ACTUATOR_HEALTH, null,
                 BenchmarkScenario.ALLOC_HEAVY_OK, 1000, "/alloc?n=1000",
                 new MeasurementProfile(5, 50, 4, 100),
-                List.of(), List.of(), List.of(), 1
+                List.of(), List.of(), List.of(), 1, null, null
         );
 
         ResultExporters.writeCsv(List.of(result), csvPath);
@@ -196,7 +198,7 @@ class ResultExportersTest {
                 null, null, null,
                 BenchmarkScenario.PAYLOAD_HEAVY_JSON, 100, "/json?n=100",
                 MeasurementProfile.defaults(),
-                null, null, null, 1
+                null, null, null, 1, null, null
         );
 
         ResultExporters.writeJson(List.of(result), jsonPath);

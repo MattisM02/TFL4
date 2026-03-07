@@ -42,7 +42,8 @@ class ConsoleSummaryPrinterTest {
                 ReadinessCheckUsed.ACTUATOR_READINESS,
                 null, scenario, 200000, "/json?n=200000",
                 MeasurementProfile.defaults(),
-                List.of(), List.of(), List.of(), 1
+                List.of(), List.of(), List.of(), 1,
+                null, null
         );
     }
 
@@ -117,7 +118,8 @@ class ConsoleSummaryPrinterTest {
                 null, ReadinessCheckUsed.ACTUATOR_HEALTH,
                 null, BenchmarkScenario.PAYLOAD_HEAVY_JSON, 100, "/json?n=100",
                 MeasurementProfile.defaults(),
-                List.of(), List.of(), List.of(), 1
+                List.of(), List.of(), List.of(), 1,
+                null, null
         );
         ConsoleSummaryPrinter.print(List.of(nativeResult));
         String output = getCaptured();
@@ -149,7 +151,8 @@ class ConsoleSummaryPrinterTest {
                 List.of(sample),  // idle
                 List.of(sample),  // load
                 List.of(sample),  // post
-                1
+                1,
+                null, null
         );
         ConsoleSummaryPrinter.print(List.of(result));
         String output = getCaptured();
@@ -168,7 +171,8 @@ class ConsoleSummaryPrinterTest {
                 ReadinessCheckUsed.ACTUATOR_READINESS,
                 null, BenchmarkScenario.PAYLOAD_HEAVY_JSON, 200000, "/json?n=200000",
                 MeasurementProfile.defaults(),
-                List.of(), List.of(), List.of(), 1
+                List.of(), List.of(), List.of(), 1,
+                null, null
         );
         RunResult rep2 = new RunResult(
                 "baseline", "img:jvm", 1100, 0.35,
@@ -178,7 +182,8 @@ class ConsoleSummaryPrinterTest {
                 ReadinessCheckUsed.ACTUATOR_READINESS,
                 null, BenchmarkScenario.PAYLOAD_HEAVY_JSON, 200000, "/json?n=200000",
                 MeasurementProfile.defaults(),
-                List.of(), List.of(), List.of(), 2
+                List.of(), List.of(), List.of(), 2,
+                null, null
         );
         ConsoleSummaryPrinter.print(List.of(rep1, rep2));
         String output = getCaptured();

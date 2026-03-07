@@ -7,6 +7,8 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -228,7 +230,40 @@ public class SingleRun {
             //     Nachlaufwerte: interessant fuer "memory not returning" oder Nach-GC-Verhalten.
             List<DockerStatSample> dockerPostSamples = dockerStatsSamples(containerId, 3, 1);
 
-            // 12) Ergebnis bauen
+            // 12) GC-Log erfassen und parsen
+            //     Vollstaendige Container-Logs enthalten die GC-Ausgaben (-Xlog:gc*:stdout).
+            //     Level 1: Rohlog als Datei speichern (fuer externe Tools wie GCViewer/GCEasy).
+            //     Level 2+3: Parsen und als GcSummary + GcEvents in RunResult aufnehmen.
+            GcSummary gcSummary = null;
+            String gcLogPath = null;
+            if (!cfg.isNative() && containerId != null && !containerId.isBlank()) {
+                try {
+                    String fullLog = dockerLogsAll(containerId);
+
+                    // Level 1: Rohlog speichern
+                    Path logDir = Path.of("bench-results", "gc-logs");
+                    Files.createDirectories(logDir);
+                    String filename = cfg.name() + "-rep" + repetition + ".log";
+                    Path logFile = logDir.resolve(filename);
+                    Files.writeString(logFile, fullLog);
+                    gcLogPath = logFile.toString();
+
+                    // Level 2+3: GC-Events parsen
+                    double totalRuntimeSeconds = readinessMs / 1000.0 + totalMeasureTimeSeconds;
+                    gcSummary = GcLogParser.parse(fullLog, totalRuntimeSeconds);
+
+                    if (gcSummary != null) {
+                        System.err.printf("[GC] %s rep%d: %d pauses (%.1f ms total, max=%.1f ms, overhead=%.2f%%)%n",
+                                cfg.name(), repetition,
+                                gcSummary.gcCount(), gcSummary.totalPauseMs(),
+                                gcSummary.maxPauseMs(), gcSummary.gcOverheadPercent());
+                    }
+                } catch (Exception e) {
+                    System.err.println("[WARN] GC log capture failed for " + cfg.name() + ": " + e.getMessage());
+                }
+            }
+
+            // 13) Ergebnis bauen
             //     Speichert sowohl die Rohdaten (Latenzen + Docker-Samples) als auch Metadaten,
             //     damit spaetere Auswertung/Exports vollstaendig sind.
             RunResult result = new RunResult(
@@ -249,7 +284,9 @@ public class SingleRun {
                     dockerIdleSamples,
                     dockerLoadSamples,
                     dockerPostSamples,
-                    repetition
+                    repetition,
+                    gcSummary,
+                    gcLogPath
             );
 
             return result;
@@ -651,6 +688,25 @@ public class SingleRun {
             return "docker logs failed: " + res.stderr;
         }
         return res.stdout;
+    }
+
+    /**
+     * Holt die kompletten Container-Logs (stdout + stderr).
+     * Wird fuer die GC-Log-Erfassung nach dem Benchmark-Run verwendet.
+     *
+     * @param containerId Container-ID
+     * @return vollstaendiger Log-Output
+     * @throws IOException wenn der Aufruf fehlschlaegt
+     * @throws InterruptedException wenn der Aufruf unterbrochen wird
+     */
+    private String dockerLogsAll(String containerId) throws IOException, InterruptedException {
+        List<String> cmd = List.of("docker", "logs", containerId);
+        ExecResult res = exec(cmd, Duration.ofSeconds(30));
+        if (res.exitCode != 0) {
+            return "docker logs failed: " + res.stderr;
+        }
+        // GC-Logs gehen teilweise nach stderr (docker mischt stdout/stderr)
+        return res.stdout + (res.stderr.isBlank() ? "" : "\n" + res.stderr);
     }
 
     /**

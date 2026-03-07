@@ -43,7 +43,9 @@ class ExcelExporterTest {
                 List.of(DockerStatSample.parse("0.12%|151.9MiB / 768MiB|19.78%|4.9kB / 2.93kB|40.9MB / 0B|29")),
                 List.of(DockerStatSample.parse("45.5%|280MiB / 768MiB|36.46%|10kB / 5kB|50MB / 1MB|35")),
                 List.of(DockerStatSample.parse("2.1%|200MiB / 768MiB|26.04%|12kB / 6kB|55MB / 2MB|30")),
-                1
+                1,
+                null,
+                null
         );
     }
 
@@ -66,7 +68,9 @@ class ExcelExporterTest {
                 List.of(),
                 List.of(),
                 List.of(),
-                1
+                1,
+                null,
+                null
         );
     }
 
@@ -101,12 +105,14 @@ class ExcelExporterTest {
 
         try (InputStream is = Files.newInputStream(xlsx);
              XSSFWorkbook wb = new XSSFWorkbook(is)) {
-            assertEquals(5, wb.getNumberOfSheets());
+            assertEquals(7, wb.getNumberOfSheets());
             assertEquals("Übersicht", wb.getSheetName(0));
             assertEquals("Latenzen", wb.getSheetName(1));
             assertEquals("Startup & Throughput", wb.getSheetName(2));
             assertEquals("Ressourcen", wb.getSheetName(3));
-            assertEquals("Rohdaten", wb.getSheetName(4));
+            assertEquals("GC-Verhalten", wb.getSheetName(4));
+            assertEquals("GC-Timeline", wb.getSheetName(5));
+            assertEquals("Rohdaten", wb.getSheetName(6));
         }
     }
 
@@ -177,7 +183,7 @@ class ExcelExporterTest {
 
         try (InputStream is = Files.newInputStream(xlsx);
              XSSFWorkbook wb = new XSSFWorkbook(is)) {
-            assertEquals(5, wb.getNumberOfSheets());
+            assertEquals(7, wb.getNumberOfSheets());
         }
     }
 
@@ -188,7 +194,7 @@ class ExcelExporterTest {
                 null, null, null,
                 BenchmarkScenario.PAYLOAD_HEAVY_JSON, 100, "/json?n=100",
                 MeasurementProfile.defaults(),
-                null, null, null, 1
+                null, null, null, 1, null, null
         );
         Path xlsx = tempDir.resolve("test.xlsx");
         ExcelExporter.writeExcel(List.of(result), xlsx);

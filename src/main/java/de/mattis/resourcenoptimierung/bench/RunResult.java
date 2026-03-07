@@ -33,6 +33,8 @@ import java.util.List;
  * @param dockerLoadSamples Docker-Stats waehrend der Lastphase
  * @param dockerPostSamples Docker-Stats nach der Lastphase
  * @param repetition 1-basierte Wiederholungsnummer (1..N)
+ * @param gcSummary aggregierte GC-Kennzahlen (null bei Native-Images oder wenn kein GC-Log vorhanden)
+ * @param gcLogPath Pfad zur gespeicherten GC-Log-Datei (null wenn nicht gespeichert)
  */
 public record RunResult(
         String configName,
@@ -52,4 +54,6 @@ public record RunResult(
         List<DockerStatSample> dockerIdleSamples,
         List<DockerStatSample> dockerLoadSamples,
         List<DockerStatSample> dockerPostSamples,
-        int repetition) { }
+        int repetition,
+        GcSummary gcSummary,
+        String gcLogPath) { }
