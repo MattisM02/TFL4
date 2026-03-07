@@ -20,10 +20,10 @@ class BenchmarkPlanTest {
     }
 
     @Test
-    void defaultPlan_containsTwelveConfigs() {
+    void defaultPlan_containsTwentyConfigs() {
         BenchmarkPlan plan = BenchmarkPlan.defaultPlan();
-        assertEquals(12, plan.configs.size(),
-                "Default plan should contain 12 configs (5 GC + 3 G1-tuning + 2 JVM-interna + 2 cloud)");
+        assertEquals(20, plan.configs.size(),
+                "Default plan should contain 20 configs (5 GC + 3 G1-tuning + 2 JVM-interna + 2 cloud + 8 flag-combos)");
     }
 
     @Test
@@ -107,6 +107,65 @@ class BenchmarkPlanTest {
     @Test
     void defaultPlan_containsTieredStop1() {
         BenchmarkConfig cfg = findConfig(BenchmarkPlan.defaultPlan(), "tiered-stop-1");
+        assertTrue(cfg.jvmArgs().contains("-XX:TieredStopAtLevel=1"));
+    }
+
+    // ==================== Flag-Kombinationen ====================
+
+    @Test
+    void defaultPlan_containsSerialGc256m() {
+        BenchmarkConfig cfg = findConfig(BenchmarkPlan.defaultPlan(), "serial-gc-256m");
+        assertTrue(cfg.jvmArgs().contains("-XX:+UseSerialGC"));
+        assertTrue(cfg.jvmArgs().contains("-Xmx256m"));
+    }
+
+    @Test
+    void defaultPlan_containsZgcHeap512m() {
+        BenchmarkConfig cfg = findConfig(BenchmarkPlan.defaultPlan(), "zgc-heap-512m");
+        assertTrue(cfg.jvmArgs().contains("-XX:+UseZGC"));
+        assertTrue(cfg.jvmArgs().contains("-Xmx512m"));
+    }
+
+    @Test
+    void defaultPlan_containsShenandoahHeap512m() {
+        BenchmarkConfig cfg = findConfig(BenchmarkPlan.defaultPlan(), "shenandoah-heap-512m");
+        assertTrue(cfg.jvmArgs().contains("-XX:+UseShenandoahGC"));
+        assertTrue(cfg.jvmArgs().contains("-Xmx512m"));
+    }
+
+    @Test
+    void defaultPlan_containsTieredStop1Serial() {
+        BenchmarkConfig cfg = findConfig(BenchmarkPlan.defaultPlan(), "tiered-stop-1-serial");
+        assertTrue(cfg.jvmArgs().contains("-XX:TieredStopAtLevel=1"));
+        assertTrue(cfg.jvmArgs().contains("-XX:+UseSerialGC"));
+    }
+
+    @Test
+    void defaultPlan_containsG1CohOn() {
+        BenchmarkConfig cfg = findConfig(BenchmarkPlan.defaultPlan(), "g1-coh-on");
+        assertTrue(cfg.jvmArgs().contains("-XX:+UseG1GC"));
+        assertTrue(cfg.jvmArgs().contains("-XX:+UnlockExperimentalVMOptions"));
+        assertTrue(cfg.jvmArgs().contains("-XX:+UseCompactObjectHeaders"));
+    }
+
+    @Test
+    void defaultPlan_containsParallelGc256m() {
+        BenchmarkConfig cfg = findConfig(BenchmarkPlan.defaultPlan(), "parallel-gc-256m");
+        assertTrue(cfg.jvmArgs().contains("-XX:+UseParallelGC"));
+        assertTrue(cfg.jvmArgs().contains("-Xmx256m"));
+    }
+
+    @Test
+    void defaultPlan_containsG1LargeYoung() {
+        BenchmarkConfig cfg = findConfig(BenchmarkPlan.defaultPlan(), "g1-large-young");
+        assertTrue(cfg.jvmArgs().contains("-XX:+UseG1GC"));
+        assertTrue(cfg.jvmArgs().contains("-XX:NewRatio=1"));
+    }
+
+    @Test
+    void defaultPlan_containsZgcTieredStop1() {
+        BenchmarkConfig cfg = findConfig(BenchmarkPlan.defaultPlan(), "zgc-tiered-stop-1");
+        assertTrue(cfg.jvmArgs().contains("-XX:+UseZGC"));
         assertTrue(cfg.jvmArgs().contains("-XX:TieredStopAtLevel=1"));
     }
 

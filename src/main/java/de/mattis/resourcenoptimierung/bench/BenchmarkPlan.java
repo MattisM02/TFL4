@@ -78,6 +78,18 @@ public class BenchmarkPlan {
      *   <li>tiered-stop-1 — TieredStopAtLevel=1: Nur C1-Kompilierung, schnellerer Start, kein C2-Overhead</li>
      * </ul>
      *
+     * <h3>Flag-Kombinationen</h3>
+     * <ul>
+     *   <li>serial-gc-256m — SerialGC + 256 MB Heap: minimaler Footprint</li>
+     *   <li>zgc-heap-512m — ZGC + 512 MB Heap: mehr Spielraum fuer concurrent GC</li>
+     *   <li>shenandoah-heap-512m — Shenandoah + 512 MB Heap: mehr Spielraum fuer concurrent GC</li>
+     *   <li>tiered-stop-1-serial — C1-only + SerialGC: schnellster Start + bester GC auf 1 CPU</li>
+     *   <li>g1-coh-on — G1 + Compact Object Headers: reduziert Objekt-Overhead und GC-Druck</li>
+     *   <li>parallel-gc-256m — ParallelGC + 256 MB Heap: Durchsatz-GC mit kleinem Heap</li>
+     *   <li>g1-large-young — G1 + NewRatio=1: 50% Young Gen, weniger Full GCs erwartet</li>
+     *   <li>zgc-tiered-stop-1 — ZGC + C1-only: niedrige Pausen mit schnellem Start (Serverless/Cold-Start)</li>
+     * </ul>
+     *
      * @return Benchmark-Plan mit Standard-Konfigurationen
      */
     public static BenchmarkPlan defaultPlan() {
@@ -150,6 +162,48 @@ public class BenchmarkPlan {
                         "tiered-stop-1",
                         img,
                         List.of("-XX:TieredStopAtLevel=1")
+                ),
+
+                // --- Flag-Kombinationen ---
+                new BenchmarkConfig(
+                        "serial-gc-256m",
+                        img,
+                        List.of("-XX:+UseSerialGC", "-Xmx256m")
+                ),
+                new BenchmarkConfig(
+                        "zgc-heap-512m",
+                        img,
+                        List.of("-XX:+UseZGC", "-Xmx512m")
+                ),
+                new BenchmarkConfig(
+                        "shenandoah-heap-512m",
+                        img,
+                        List.of("-XX:+UseShenandoahGC", "-Xmx512m")
+                ),
+                new BenchmarkConfig(
+                        "tiered-stop-1-serial",
+                        img,
+                        List.of("-XX:TieredStopAtLevel=1", "-XX:+UseSerialGC")
+                ),
+                new BenchmarkConfig(
+                        "g1-coh-on",
+                        img,
+                        List.of("-XX:+UseG1GC", "-XX:+UnlockExperimentalVMOptions", "-XX:+UseCompactObjectHeaders")
+                ),
+                new BenchmarkConfig(
+                        "parallel-gc-256m",
+                        img,
+                        List.of("-XX:+UseParallelGC", "-Xmx256m")
+                ),
+                new BenchmarkConfig(
+                        "g1-large-young",
+                        img,
+                        List.of("-XX:+UseG1GC", "-XX:NewRatio=1")
+                ),
+                new BenchmarkConfig(
+                        "zgc-tiered-stop-1",
+                        img,
+                        List.of("-XX:+UseZGC", "-XX:TieredStopAtLevel=1")
                 )
         ));
     }

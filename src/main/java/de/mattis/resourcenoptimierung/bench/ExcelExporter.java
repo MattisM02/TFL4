@@ -499,7 +499,11 @@ public final class ExcelExporter {
 
             XDDFScatterChartData scatterData = (XDDFScatterChartData)
                     chart.createData(ChartTypes.SCATTER, xAxis, yAxis);
-            scatterData.setStyle(ScatterStyle.LINE_MARKER);
+            // MARKER_ONLY: Punkte ohne Verbindungslinien (ideal fuer Timeline)
+            // Hinweis: setMarkerStyle/setMarkerSize benoetigt poi-ooxml-full statt
+            // poi-ooxml-lite (fehlende xsb-Schema-Ressourcen), deshalb verwenden
+            // wir den Default-Marker und setzen nur die Farbe per Series-Fill.
+            scatterData.setStyle(ScatterStyle.MARKER);
 
             // Farbpalette fuer Serien (rotiert bei >6 Configs)
             byte[][] seriesColors = {
@@ -520,8 +524,6 @@ public final class ExcelExporter {
                 series.setTitle(configNames.get(i), null);
 
                 byte[] color = seriesColors[i % seriesColors.length];
-                series.setMarkerStyle(MarkerStyle.CIRCLE);
-                series.setMarkerSize((short) 5);
                 series.setFillProperties(new XDDFSolidFillProperties(XDDFColor.from(color)));
             }
 

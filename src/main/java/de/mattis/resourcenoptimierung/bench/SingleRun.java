@@ -614,14 +614,26 @@ public class SingleRun {
         ProcessBuilder pb = new ProcessBuilder(cmd);
         Process p = pb.start();
 
+        // Stdout und stderr parallel lesen, BEVOR waitFor() aufgerufen wird.
+        // Verhindert Pipe-Deadlock: Wenn der OS-Pipe-Buffer (~64KB) volllaeuft,
+        // blockiert der Kindprozess beim Schreiben und waitFor() haengt ewig.
+        CompletableFuture<String> stdoutFuture = CompletableFuture.supplyAsync(() -> {
+            try { return readAll(p.getInputStream()); } catch (IOException e) { return ""; }
+        });
+        CompletableFuture<String> stderrFuture = CompletableFuture.supplyAsync(() -> {
+            try { return readAll(p.getErrorStream()); } catch (IOException e) { return ""; }
+        });
+
         boolean ok = p.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS);
         if (!ok) {
             p.destroyForcibly();
+            stdoutFuture.cancel(true);
+            stderrFuture.cancel(true);
             throw new RuntimeException("Command timed out: " + String.join(" ", cmd));
         }
 
-        String stdout = readAll(p.getInputStream());
-        String stderr = readAll(p.getErrorStream());
+        String stdout = stdoutFuture.join();
+        String stderr = stderrFuture.join();
         return new ExecResult(p.exitValue(), stdout, stderr);
     }
 
@@ -701,7 +713,7 @@ public class SingleRun {
      */
     private String dockerLogsAll(String containerId) throws IOException, InterruptedException {
         List<String> cmd = List.of("docker", "logs", containerId);
-        ExecResult res = exec(cmd, Duration.ofSeconds(30));
+        ExecResult res = exec(cmd, Duration.ofSeconds(60));
         if (res.exitCode != 0) {
             return "docker logs failed: " + res.stderr;
         }

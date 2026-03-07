@@ -11,8 +11,11 @@ import java.util.regex.Pattern;
  * <p>Unterstuetzte Collectors:
  * <ul>
  *   <li>G1 (Young, Mixed, Full)</li>
- *   <li>ZGC (Pause Mark Start/End, Pause Relocate Start)</li>
- *   <li>Shenandoah (Pause Init Mark, Pause Final Mark, etc.)</li>
+ *   <li>ZGC / Generational ZGC (JDK 25) — Pause on {@code [gc,phases]} with
+ *       generation prefix {@code Y:}, {@code y:}, {@code O:}; heap on
+ *       {@code [gc]} via {@code Major/Minor Collection} summary lines</li>
+ *   <li>Shenandoah (Pause Init Mark, Pause Final Mark, etc.) — heap on
+ *       {@code Concurrent cleanup} lines</li>
  *   <li>Serial / Parallel (Pause Young, Pause Full)</li>
  * </ul>
  *
@@ -39,24 +42,63 @@ public final class GcLogParser {
 
     // ── Regex fuer Pause-Zeilen OHNE Heap (ZGC, Shenandoah) ─────────────
     //
-    // Beispiele:
+    // JDK 25 Generational ZGC uses [gc,phases] tag and has a generation prefix:
+    //   [0.347s][info][gc,phases   ] GC(0) Y: Pause Mark Start (Major) 0.044ms
+    //   [3.556s][info][gc,phases   ] GC(3) y: Pause Mark Start 0.017ms
+    //   [0.428s][info][gc,phases   ] GC(0) O: Pause Mark End 0.015ms
+    //
+    // Shenandoah uses [gc] tag without prefix:
+    //   [0.931s][info][gc          ] GC(0) Pause Init Mark (unload classes) 0.064ms
+    //   [0.939s][info][gc          ] GC(0) Pause Final Mark (unload classes) 0.180ms
+    //
+    // Old non-generational ZGC (also matches):
     //   [0.200s][info][gc] GC(0) Pause Mark Start 0.015ms
-    //   [0.300s][info][gc] GC(0) Pause Mark End 0.010ms
-    //   [0.400s][info][gc] GC(0) Pause Relocate Start 0.020ms
-    //   [1.100s][info][gc] GC(1) Pause Init Mark 0.050ms
-    //   [1.200s][info][gc] GC(1) Pause Final Mark 0.080ms
     //
     private static final Pattern PAUSE_NO_HEAP = Pattern.compile(
-            "\\[(\\d+[.,]\\d+)s].*?GC\\(\\d+\\)\\s+Pause\\s+(.+?)\\s+(\\d+[.,]\\d+)ms"
+            "\\[(\\d+[.,]\\d+)s]"                                        // [timestamp]
+          + ".*?GC\\(\\d+\\)"                                            // GC(N)
+          + "\\s+(?:[YyO]:\\s+)?"                                        // optional generation prefix Y:/y:/O:
+          + "Pause\\s+(.+?)"                                             // Pause <type...>
+          + "\\s+(\\d+[.,]\\d+)ms"                                       // pause duration in ms
     );
 
-    // ── Regex fuer ZGC Heap-Info (auf separater Zeile) ───────────────────
+    // ── Regex fuer ZGC Heap-Info (Major/Minor Collection summary) ────────
     //
-    // Beispiel:
-    //   [0.500s][info][gc] GC(0) Garbage Collection (Warmup) 24M(12%)->8M(4%)
+    // JDK 25 Generational ZGC — on [gc] tag:
+    //   [0.432s][info][gc          ] GC(0) Major Collection (Warmup) 18M(9%)->8M(4%) 0.085s
+    //   [3.750s][info][gc          ] GC(3) Minor Collection (Allocation Rate) 158M(82%)->32M(17%) 0.193s
+    //
+    // Duration is in SECONDS (not ms). Heap sizes have percentage suffix like 18M(9%).
     //
     private static final Pattern ZGC_HEAP = Pattern.compile(
-            "\\[(\\d+[.,]\\d+)s].*?GC\\(\\d+\\)\\s+Garbage Collection.*?(\\d+[BKMGT]).*?->(\\d+[BKMGT])"
+            "\\[(\\d+[.,]\\d+)s]"                                        // [timestamp]
+          + ".*?GC\\(\\d+\\)\\s+"
+          + "(Major|Minor) Collection"                                    // collection type
+          + ".*?(\\d+)[BKMGT]\\(\\d+%\\)"                               // heap before (size only, ignore %)
+          + "->(\\d+)[BKMGT]\\(\\d+%\\)"                                 // heap after  (size only, ignore %)
+          + "\\s+(\\d+[.,]\\d+)s"                                        // duration in seconds
+    );
+
+    // ── Regex fuer ZGC Heap mit Einheit-Capture ──────────────────────────
+    // Wir brauchen die Einheit, um korrekt nach KiB zu konvertieren.
+    private static final Pattern ZGC_HEAP_FULL = Pattern.compile(
+            "\\[(\\d+[.,]\\d+)s]"                                        // [timestamp]
+          + ".*?GC\\(\\d+\\)\\s+"
+          + "(Major|Minor) Collection"                                    // collection type
+          + ".*?(\\d+)([BKMGT])\\(\\d+%\\)"                             // heap before + unit
+          + "->(\\d+)([BKMGT])\\(\\d+%\\)"                              // heap after  + unit
+          + "\\s+(\\d+[.,]\\d+)s"                                        // duration in seconds
+    );
+
+    // ── Regex fuer Shenandoah Heap-Info (Concurrent cleanup) ─────────────
+    //
+    // Beispiel:
+    //   [1.011s][info][gc          ] GC(0) Concurrent cleanup (unload classes) 47M->6M(53M) 0.065ms
+    //
+    private static final Pattern SHENANDOAH_CLEANUP = Pattern.compile(
+            "\\[(\\d+[.,]\\d+)s]"                                        // [timestamp]
+          + ".*?GC\\(\\d+\\)\\s+Concurrent cleanup"                      // Concurrent cleanup
+          + ".*?(\\d+)([BKMGT])->(\\d+)([BKMGT])\\((\\d+)([BKMGT])\\)"  // before->after(max)
     );
 
     /**
@@ -75,6 +117,12 @@ public final class GcLogParser {
             GcEvent event = parseLine(line);
             if (event != null) {
                 events.add(event);
+                continue;
+            }
+            // Try heap-only lines (ZGC summary, Shenandoah cleanup)
+            GcEvent heapEvent = parseHeapLine(line);
+            if (heapEvent != null) {
+                events.add(heapEvent);
             }
         }
 
@@ -88,7 +136,7 @@ public final class GcLogParser {
         long peakHeapAfterGcKb = -1;
 
         for (GcEvent e : events) {
-            if (!Double.isNaN(e.pauseMs())) {
+            if (!Double.isNaN(e.pauseMs()) && e.pauseMs() >= 0) {
                 gcCount++;
                 totalPauseMs += e.pauseMs();
                 if (e.pauseMs() > maxPauseMs) maxPauseMs = e.pauseMs();
@@ -116,7 +164,7 @@ public final class GcLogParser {
     // ── Interne Hilfsmethoden ────────────────────────────────────────────
 
     /**
-     * Versucht, eine einzelne Log-Zeile als GC-Event zu parsen.
+     * Versucht, eine einzelne Log-Zeile als GC-Pause-Event zu parsen.
      * Gibt {@code null} zurueck wenn die Zeile kein GC-Pause-Event ist.
      */
     static GcEvent parseLine(String line) {
@@ -145,8 +193,48 @@ public final class GcLogParser {
             String rawType = m2.group(2).trim();
             double pauseMs = parseDouble(m2.group(3));
 
-            // Typ normalisieren: "Mark Start" -> "Mark Start", "Init Mark" -> "Init Mark"
-            return new GcEvent(ts, rawType, "", -1, -1, -1, pauseMs);
+            // Entferne trailing qualifier in Klammern, z.B. "(unload classes)" oder "(Major)"
+            String cleanType = rawType.replaceAll("\\s*\\([^)]*\\)\\s*", " ").trim();
+
+            return new GcEvent(ts, cleanType, "", -1, -1, -1, pauseMs);
+        }
+
+        return null;
+    }
+
+    /**
+     * Versucht, eine Zeile als Heap-Info-Event zu parsen (kein Pause-Event).
+     * Betrifft ZGC Major/Minor Collection summary lines und Shenandoah Concurrent cleanup.
+     * Diese Events haben {@code pauseMs = NaN} und dienen nur der Heap-Daten-Erfassung.
+     */
+    static GcEvent parseHeapLine(String line) {
+        if (line == null) return null;
+
+        // 1. ZGC Major/Minor Collection summary
+        if (line.contains("Collection")) {
+            Matcher m = ZGC_HEAP_FULL.matcher(line);
+            if (m.find()) {
+                double ts = parseDouble(m.group(1));
+                String collType = m.group(2);            // Major or Minor
+                long heapBefore = parseSizeWithUnit(m.group(3), m.group(4));
+                long heapAfter = parseSizeWithUnit(m.group(5), m.group(6));
+                // ZGC doesn't report max heap on summary line — use -1
+                return new GcEvent(ts, collType + " Collection", "",
+                        heapBefore, heapAfter, -1, Double.NaN);
+            }
+        }
+
+        // 2. Shenandoah Concurrent cleanup with heap info
+        if (line.contains("Concurrent cleanup")) {
+            Matcher m = SHENANDOAH_CLEANUP.matcher(line);
+            if (m.find()) {
+                double ts = parseDouble(m.group(1));
+                long heapBefore = parseSizeWithUnit(m.group(2), m.group(3));
+                long heapAfter = parseSizeWithUnit(m.group(4), m.group(5));
+                long heapMax = parseSizeWithUnit(m.group(6), m.group(7));
+                return new GcEvent(ts, "Concurrent Cleanup", "",
+                        heapBefore, heapAfter, heapMax, Double.NaN);
+            }
         }
 
         return null;
@@ -162,6 +250,19 @@ public final class GcLogParser {
         char unit = s.charAt(s.length() - 1);
         long value = Long.parseLong(s.substring(0, s.length() - 1));
 
+        return convertToKib(value, unit);
+    }
+
+    /**
+     * Parst Groesse aus separaten Wert- und Einheit-Strings (z.B. "18", "M").
+     */
+    static long parseSizeWithUnit(String value, String unit) {
+        if (value == null || unit == null || value.isEmpty() || unit.isEmpty()) return -1;
+        long val = Long.parseLong(value);
+        return convertToKib(val, unit.charAt(0));
+    }
+
+    private static long convertToKib(long value, char unit) {
         return switch (Character.toUpperCase(unit)) {
             case 'B' -> Math.max(1, value / 1024);    // Bytes -> KiB (mindestens 1)
             case 'K' -> value;                          // bereits KiB
