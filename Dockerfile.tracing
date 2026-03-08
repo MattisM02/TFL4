@@ -1,0 +1,27 @@
+# ── Tracing Agent: captures GraalVM reachability metadata ─────────────────────
+# Usage:
+#   docker build -f Dockerfile.tracing -t tfl4-tracing .
+#   docker run --rm -it -p 8080:8080 \
+#     --add-host nbag0342:host-gateway \
+#     -v "$(pwd)/src/main/resources/META-INF/native-image:/agent-output" \
+#     tfl4-tracing
+#
+# Exercise all endpoints, then Ctrl+C. Agent writes metadata on shutdown.
+# ──────────────────────────────────────────────────────────────────────────────
+
+FROM ghcr.io/graalvm/jdk-community:25
+
+WORKDIR /app
+COPY target/jvm-optim-demo-0.0.1-SNAPSHOT.jar app.jar
+
+# EBICS config + PKCS#12 keys (needed for full EBICS code-path tracing)
+COPY ebics/ebicsclient.config ebics/ebicsclient_a00.p12 \
+     ebics/ebicsclient_e00.p12 ebics/ebicsclient_x00.p12 /app/ebics/
+
+RUN mkdir -p /agent-output
+
+EXPOSE 8080
+
+ENTRYPOINT ["java", \
+  "-agentlib:native-image-agent=config-output-dir=/agent-output", \
+  "-jar", "app.jar"]
