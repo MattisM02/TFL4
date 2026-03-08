@@ -64,6 +64,22 @@ class BenchCliTest {
         assertEquals(30, BenchCli.resolveIntArg(args, "--warmupRequests", 20));
     }
 
+    @Test
+    void resolveIntArg_nonNumeric_throwsIllegalArgumentException() {
+        String[] args = {"--warmupRequests", "abc"};
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> BenchCli.resolveIntArg(args, "--warmupRequests", 20));
+        assertTrue(ex.getMessage().contains("--warmupRequests"));
+        assertTrue(ex.getMessage().contains("abc"));
+    }
+
+    @Test
+    void resolveIntArg_floatingPoint_throwsIllegalArgumentException() {
+        String[] args = {"--warmupRequests", "3.5"};
+        assertThrows(IllegalArgumentException.class,
+                () -> BenchCli.resolveIntArg(args, "--warmupRequests", 20));
+    }
+
     // ==================== resolveLongArg ====================
 
     @Test
@@ -75,6 +91,15 @@ class BenchCliTest {
     @Test
     void resolveLongArg_notPresent_returnsDefault() {
         assertEquals(0L, BenchCli.resolveLongArg(new String[]{}, "--sleepBetweenRequestsMs", 0));
+    }
+
+    @Test
+    void resolveLongArg_nonNumeric_throwsIllegalArgumentException() {
+        String[] args = {"--sleepBetweenRequestsMs", "xyz"};
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> BenchCli.resolveLongArg(args, "--sleepBetweenRequestsMs", 0));
+        assertTrue(ex.getMessage().contains("--sleepBetweenRequestsMs"));
+        assertTrue(ex.getMessage().contains("xyz"));
     }
 
     // ==================== parseScenario ====================
@@ -147,6 +172,15 @@ class BenchCliTest {
     @Test
     void resolveWorkloadN_defaultEbicsUpload() {
         assertEquals(10, BenchCli.resolveWorkloadN(new String[]{}, BenchmarkScenario.EBICS_UPLOAD));
+    }
+
+    @Test
+    void resolveWorkloadN_nonNumeric_throwsIllegalArgumentException() {
+        String[] args = {"--n", "lots"};
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> BenchCli.resolveWorkloadN(args, BenchmarkScenario.PAYLOAD_HEAVY_JSON));
+        assertTrue(ex.getMessage().contains("--n"));
+        assertTrue(ex.getMessage().contains("lots"));
     }
 
     // ==================== resolveProfile ====================
@@ -223,8 +257,8 @@ class BenchCliTest {
     void resolvePlan_noJvmArgs_returnsCombinedPlan() {
         String[] args = {"--scenario", "json"};
         BenchmarkPlan plan = BenchCli.resolvePlan(args, BenchmarkScenario.PAYLOAD_HEAVY_JSON);
-        assertEquals(31, plan.configs.size(),
-                "Without --profiles, combined plan should have 31 configs");
+        assertEquals(32, plan.configs.size(),
+                "Without --profiles, combined plan should have 32 configs");
         assertEquals("baseline", plan.configs.get(0).name());
         assertEquals("P01-hotspot-standard", plan.configs.get(20).name());
     }
@@ -282,7 +316,7 @@ class BenchCliTest {
     void resolvePlan_ebicsUpload_defaultPlan_usesEkImages() {
         String[] args = {};
         BenchmarkPlan plan = BenchCli.resolvePlan(args, BenchmarkScenario.EBICS_UPLOAD);
-        assertEquals(31, plan.configs.size(), "EBICS combined plan should have 31 configs");
+        assertEquals(32, plan.configs.size(), "EBICS combined plan should have 32 configs");
         // Alle Configs muessen auf EK-Images enden
         for (BenchmarkConfig cfg : plan.configs) {
             assertTrue(cfg.dockerImage().endsWith("-ek"),
@@ -310,7 +344,7 @@ class BenchCliTest {
     void resolvePlan_nonEbics_combinedPlan_defaultImagesNotEk() {
         String[] args = {};
         BenchmarkPlan plan = BenchCli.resolvePlan(args, BenchmarkScenario.ALLOC_HEAVY_OK);
-        assertEquals(31, plan.configs.size());
+        assertEquals(32, plan.configs.size());
         // No image should end with -ek in non-EBICS mode
         for (BenchmarkConfig cfg : plan.configs) {
             assertFalse(cfg.dockerImage().endsWith("-ek"),
@@ -324,7 +358,7 @@ class BenchCliTest {
     void resolvePlan_profilesFlag_returnsProfilePlan() {
         String[] args = {"--profiles"};
         BenchmarkPlan plan = BenchCli.resolvePlan(args, BenchmarkScenario.PAYLOAD_HEAVY_JSON);
-        assertEquals(11, plan.configs.size(), "Profile plan should have 11 configs (P01-P04 + P06-P12)");
+        assertEquals(12, plan.configs.size(), "Profile plan should have 12 configs (P01-P12)");
         assertTrue(plan.configs.get(0).name().startsWith("P01"));
     }
 
@@ -332,7 +366,7 @@ class BenchCliTest {
     void resolvePlan_profilesFlag_ebics_usesEbicsImages() {
         String[] args = {"--profiles"};
         BenchmarkPlan plan = BenchCli.resolvePlan(args, BenchmarkScenario.EBICS_UPLOAD);
-        assertEquals(11, plan.configs.size());
+        assertEquals(12, plan.configs.size());
         // P01 (HOTSPOT) should use jvm-ek
         assertEquals("tfl4-ek-bench:jvm-ek", plan.configs.get(0).dockerImage());
         // P04 (OPENJ9) should use openj9-ek
@@ -358,6 +392,7 @@ class BenchCliTest {
         BenchmarkPlan plan = BenchCli.resolvePlan(args, BenchmarkScenario.PAYLOAD_HEAVY_JSON);
         assertTrue(plan.configs.stream().anyMatch(c -> c.runtimeType() == RuntimeType.HOTSPOT));
         assertTrue(plan.configs.stream().anyMatch(c -> c.runtimeType() == RuntimeType.OPENJ9));
+        assertTrue(plan.configs.stream().anyMatch(c -> c.runtimeType() == RuntimeType.NATIVE));
     }
 
     @Test

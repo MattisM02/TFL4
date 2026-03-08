@@ -5,26 +5,26 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Tests fuer TravicLinkManager: Szenario-Erkennung und Konstruktion.
+ * Tests fuer TravicLinkManager und BenchmarkScenario.isEbics().
  * Lifecycle-Tests (start/stop) sind hier nicht enthalten, da sie Docker erfordern.
  */
 class TravicLinkManagerTest {
 
-    // ==================== isEbicsScenario ====================
+    // ==================== BenchmarkScenario.isEbics ====================
 
     @Test
-    void isEbicsScenario_upload_returnsTrue() {
-        assertTrue(TravicLinkManager.isEbicsScenario(BenchmarkScenario.EBICS_UPLOAD));
+    void isEbics_upload_returnsTrue() {
+        assertTrue(BenchmarkScenario.EBICS_UPLOAD.isEbics());
     }
 
     @Test
-    void isEbicsScenario_json_returnsFalse() {
-        assertFalse(TravicLinkManager.isEbicsScenario(BenchmarkScenario.PAYLOAD_HEAVY_JSON));
+    void isEbics_json_returnsFalse() {
+        assertFalse(BenchmarkScenario.PAYLOAD_HEAVY_JSON.isEbics());
     }
 
     @Test
-    void isEbicsScenario_alloc_returnsFalse() {
-        assertFalse(TravicLinkManager.isEbicsScenario(BenchmarkScenario.ALLOC_HEAVY_OK));
+    void isEbics_alloc_returnsFalse() {
+        assertFalse(BenchmarkScenario.ALLOC_HEAVY_OK.isEbics());
     }
 
     // ==================== Constructor ====================

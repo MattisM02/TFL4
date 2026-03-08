@@ -74,7 +74,12 @@ public record DockerStatSample(
         String blockIn = block[0].trim();
         String blockOut = block.length > 1 ? block[1].trim() : "";
 
-        int pids = Integer.parseInt(parts[5].trim());
+        int pids;
+        try {
+            pids = Integer.parseInt(parts[5].trim());
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("Cannot parse PIDs from docker stats: '" + parts[5].trim() + "'", e);
+        }
 
         return new DockerStatSample(cpu, memUsage, memLimit, memPerc, netIn, netOut, blockIn, blockOut, pids);
     }

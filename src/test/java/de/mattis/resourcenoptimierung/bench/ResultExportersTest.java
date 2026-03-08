@@ -19,7 +19,7 @@ class ResultExportersTest {
     Path tempDir;
 
     private RunResult createSampleResult(String name, BenchmarkScenario scenario) {
-        return new RunResult(
+        return RunResult.of(
                 name,
                 "img:jvm",
                 1200L,
@@ -123,7 +123,7 @@ class ResultExportersTest {
     @Test
     void writeCsv_profileValuesInOutput() throws IOException {
         Path csvPath = tempDir.resolve("test.csv");
-        RunResult result = new RunResult(
+        RunResult result = RunResult.of(
                 "custom", "img:jvm", 500, 0.1, List.of(0.01), 0.5, 200.0,
                 "", ReadinessCheckUsed.ACTUATOR_HEALTH, null,
                 BenchmarkScenario.ALLOC_HEAVY_OK, 1000, "/alloc?n=1000",
@@ -195,7 +195,7 @@ class ResultExportersTest {
     @Test
     void writeJson_nullEffectiveFlags_writesNull() throws IOException {
         Path jsonPath = tempDir.resolve("test.json");
-        RunResult result = new RunResult(
+        RunResult result = RunResult.of(
                 "native", "img:native", 200, 0.05, List.of(0.003), 0.3, 333.0,
                 null, null, null,
                 BenchmarkScenario.PAYLOAD_HEAVY_JSON, 100, "/json?n=100",

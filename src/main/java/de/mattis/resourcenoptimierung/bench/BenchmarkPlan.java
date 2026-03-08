@@ -42,7 +42,7 @@ public class BenchmarkPlan {
      * @param configs auszufuehrende Benchmark-Konfigurationen
      */
     public BenchmarkPlan(List<BenchmarkConfig> configs) {
-        this.configs = configs;
+        this.configs = List.copyOf(configs);
     }
 
     /**
@@ -61,9 +61,9 @@ public class BenchmarkPlan {
     }
 
     /**
-     * Erzeugt den vollstaendigen Benchmark-Plan (31 Konfigurationen).
+     * Erzeugt den vollstaendigen Benchmark-Plan (32 Konfigurationen).
      *
-     * <p>Enthaelt alle Flag-Analyse-Konfigurationen (20) und alle Laufzeitprofile (11).
+     * <p>Enthaelt alle Flag-Analyse-Konfigurationen (20) und alle Laufzeitprofile (12).
      * Jede Konfiguration traegt Metadaten (Kategorie, Laufzeitmodell) fuer Excel-Gruppierung.
      *
      * <h3>Garbage-Collector-Vergleich (5)</h3>
@@ -106,12 +106,13 @@ public class BenchmarkPlan {
      *   <li>zgc-tiered-stop-1 — ZGC + C1-only: niedrige Pausen mit schnellem Start (Serverless/Cold-Start)</li>
      * </ul>
      *
-     * <h3>Laufzeitprofile (11, P01–P04 + P06–P12)</h3>
+     * <h3>Laufzeitprofile (12, P01–P12)</h3>
      * <ul>
      *   <li>P01-hotspot-standard — G1GC + 75% RAM (Standard-Cloud-Deployment)</li>
      *   <li>P02-hotspot-fast-startup — G1GC + C1-only (Serverless/Cold-Start)</li>
      *   <li>P03-hotspot-low-latency — ZGC (Sub-Millisekunden-Pausen)</li>
      *   <li>P04-openj9-low-memory — OpenJ9 gencon GC (Memory-optimiert)</li>
+     *   <li>P05-native — GraalVM Native Image (AOT-kompiliert, kein JVM-Overhead)</li>
      *   <li>P06-openj9-balanced — OpenJ9 balanced GC (Region-basiert, NUMA-aware)</li>
      *   <li>P07-openj9-optthruput — OpenJ9 optthruput GC (Durchsatz-optimiert)</li>
      *   <li>P08-openj9-optavgpause — OpenJ9 optavgpause GC (Pausen-optimiert)</li>
@@ -121,7 +122,7 @@ public class BenchmarkPlan {
      *   <li>P12-graalvm-jit — GraalVM JIT-Compiler (optimierte Codegenerierung)</li>
      * </ul>
      *
-     * @return Benchmark-Plan mit 31 Konfigurationen
+     * @return Benchmark-Plan mit 32 Konfigurationen
      */
     public static BenchmarkPlan defaultPlan() {
         String img = "tfl4-ek-bench:jvm";
@@ -131,6 +132,7 @@ public class BenchmarkPlan {
         String imgOpenj9   = "tfl4-ek-bench:openj9";
         String imgCds      = "tfl4-ek-bench:jvm-cds";
         String imgGraalJit = "tfl4-ek-bench:graalvm-jit";
+        String imgNative   = "tfl4-ek-bench:native";
 
         return new BenchmarkPlan(List.of(
                 // ==================== Garbage-Collector-Vergleich ====================
@@ -337,6 +339,14 @@ public class BenchmarkPlan {
                         "OpenJ9"
                 ),
                 new BenchmarkConfig(
+                        "P05-native",
+                        imgNative,
+                        List.of(),
+                        RuntimeType.NATIVE,
+                        "Laufzeitprofil",
+                        "Native"
+                ),
+                new BenchmarkConfig(
                         "P06-openj9-balanced",
                         imgOpenj9,
                         List.of("-Xgcpolicy:balanced", "-XX:MaxRAMPercentage=75"),
@@ -396,13 +406,12 @@ public class BenchmarkPlan {
     }
 
     /**
-     * Erzeugt einen Plan mit nur den Laufzeitprofilen (P01–P04, P06–P12).
+     * Erzeugt einen Plan mit nur den Laufzeitprofilen (P01–P12).
      *
-     * <p>Enthaelt 11 standardisierte Profile, die verschiedene JVM-Implementierungen
-     * und Laufzeitmodelle vergleichen. P05-native ist entfernt, da GraalVM Native Image
-     * ohne Reachability-Metadata nicht lauffaehig ist.
+     * <p>Enthaelt 12 standardisierte Profile, die verschiedene JVM-Implementierungen
+     * und Laufzeitmodelle vergleichen.
      *
-     * @return Benchmark-Plan mit 11 Laufzeitprofilen
+     * @return Benchmark-Plan mit 12 Laufzeitprofilen
      */
     public static BenchmarkPlan profilePlan() {
         BenchmarkPlan full = defaultPlan();
@@ -461,7 +470,7 @@ public class BenchmarkPlan {
      * <p>Diese Methode existiert fuer Rueckwaertskompatibilitaet mit BenchCli
      * und Tests, die {@code combinedPlan()} aufrufen.
      *
-     * @return vollstaendiger Plan mit 31 Konfigurationen
+     * @return vollstaendiger Plan mit 32 Konfigurationen
      */
     public static BenchmarkPlan combinedPlan() {
         return defaultPlan();

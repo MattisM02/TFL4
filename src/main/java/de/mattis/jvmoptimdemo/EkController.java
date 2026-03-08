@@ -21,6 +21,12 @@ import java.util.concurrent.atomic.AtomicLong;
  *   <li>{@code GET /ebics/stats} — Request-/Upload-Zaehler</li>
  *   <li>{@code GET /ebics/test} — Schritt-fuer-Schritt Verbindungstest</li>
  * </ul>
+ *
+ * <p><b>Design-Entscheidung: GET statt POST fuer /upload und /test:</b>
+ * Obwohl Upload und Test mutierende Operationen sind, verwenden sie GET,
+ * weil das Benchmark-Harness ({@code SingleRun.measureEndpointSeconds()})
+ * alle Szenarien einheitlich per HTTP GET aufruft. Diese App ist kein
+ * produktives API, sondern ein reiner Benchmark-Workload.</p>
  */
 @RestController
 @RequestMapping("/ebics")
@@ -35,6 +41,9 @@ public class EkController {
 
     /** Zaehlt alle erfolgreich ausgefuehrten EBICS-Uploads. */
     private final AtomicLong uploadCounter = new AtomicLong(0);
+
+    /** Maximale Anzahl Uploads pro Request (Schutz vor uebermaessiger Last). */
+    private static final int MAX_UPLOAD_N = 100;
 
     public EkController(EbicsService ebicsService) {
         this.ebicsService = ebicsService;
@@ -57,6 +66,7 @@ public class EkController {
     public Map<String, Object> upload(
             @RequestParam(name = "n", defaultValue = "1") int n
     ) {
+        n = Math.max(0, Math.min(n, MAX_UPLOAD_N));
         requestCounter.incrementAndGet();
         long startTime = System.nanoTime();
 

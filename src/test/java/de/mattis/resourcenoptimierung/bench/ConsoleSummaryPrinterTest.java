@@ -34,7 +34,7 @@ class ConsoleSummaryPrinterTest {
     }
 
     private RunResult sampleResult(String name, BenchmarkScenario scenario) {
-        return new RunResult(
+        return RunResult.of(
                 name, "img:jvm", 1000, 0.3,
                 List.of(0.010, 0.012, 0.015, 0.020, 0.025),
                 2.5, 40.0,
@@ -112,7 +112,7 @@ class ConsoleSummaryPrinterTest {
 
     @Test
     void print_nativeConfig_showsNATIVE() {
-        RunResult nativeResult = new RunResult(
+        RunResult nativeResult = RunResult.of(
                 "native", "img:native", 200, 0.05,
                 List.of(0.005, 0.006), 0.5, 400.0,
                 null, ReadinessCheckUsed.ACTUATOR_HEALTH,
@@ -142,7 +142,7 @@ class ConsoleSummaryPrinterTest {
     @Test
     void print_withDockerStats_showsLoadStats() {
         DockerStatSample sample = new DockerStatSample(25.5, "200MiB", "512MiB", 39.0, "1kB", "2kB", "0B", "0B", 20);
-        RunResult result = new RunResult(
+        RunResult result = RunResult.of(
                 "baseline", "img:jvm", 1000, 0.3,
                 List.of(0.01, 0.02), 1.0, 100.0,
                 "", ReadinessCheckUsed.ACTUATOR_READINESS,
@@ -163,7 +163,7 @@ class ConsoleSummaryPrinterTest {
 
     @Test
     void print_multipleRepetitions_showsAggregation() {
-        RunResult rep1 = new RunResult(
+        RunResult rep1 = RunResult.of(
                 "baseline", "img:jvm", 1000, 0.3,
                 List.of(0.010, 0.012, 0.015, 0.020, 0.025),
                 2.5, 40.0,
@@ -174,7 +174,7 @@ class ConsoleSummaryPrinterTest {
                 List.of(), List.of(), List.of(), 1,
                 null, null, null, null
         );
-        RunResult rep2 = new RunResult(
+        RunResult rep2 = RunResult.of(
                 "baseline", "img:jvm", 1100, 0.35,
                 List.of(0.011, 0.013, 0.016, 0.021, 0.026),
                 2.6, 38.5,

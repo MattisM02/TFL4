@@ -19,7 +19,8 @@ Zielgruppe: Pruefer und Betreuer mit JVM-Grundkenntnissen.
 9. [Statistische Methodik](#9-statistische-methodik)
 10. [Excel-Darstellung](#10-excel-darstellung)
 11. [CLI-Optionen und Messprofile](#11-cli-optionen-und-messprofile)
-12. [Limitierungen](#12-limitierungen)
+12. [GraalVM Native Image: Architektur und geloeste Probleme](#12-graalvm-native-image-architektur-und-geloeste-probleme)
+13. [Limitierungen](#13-limitierungen)
 
 ---
 
@@ -264,8 +265,7 @@ OpenJ9 mit eingeschraenktem Heap. Direkter Vergleich zu P09 (HotSpot mit 256 MB)
 **Flags:** *(keine -- kein JAVA_TOOL_OPTIONS)*
 GraalVM Native Image kompiliert die gesamte Anwendung Ahead-of-Time (AOT) in ein natives Executable. Kein JVM-Overhead: kein Classloading, kein JIT, kein Metaspace.
 
-**Dockerfile:** Multi-Stage-Build mit `ghcr.io/graalvm/native-image-community:25` (Build-Stage) und `debian:bookworm-slim` (Runtime-Stage).
-**Besonderheit:** Erfordert `--initialize-at-build-time=org.springframework.boot.loader.nio.file.NestedFileSystemProvider` fuer Spring Boot 4 + GraalVM 25.
+**Dockerfile:** Multi-Stage-Build mit `ghcr.io/graalvm/native-image-community:25` (Build-Stage) und `debian:bookworm-slim` (Runtime-Stage). Erfordert eine eigene GraalVM Feature-Klasse (`IaikSecurityFeature`) und eine Wrapper-SchemaFactory (`NativeSchemaFactory`), um die IAIK-Security-Bibliothek und XSD-Schema-Validierung im Native Image lauffaehig zu machen. Details dazu in Abschnitt 12.
 
 Erwartungen:
 - **Startup:** Groessenordnung Millisekunden statt Sekunden
@@ -509,7 +509,182 @@ Waehrend des Benchmarks wird nach jedem erfolgreichen Run das Ergebnis sofort an
 
 ---
 
-## 12. Limitierungen
+## 12. GraalVM Native Image: Architektur und geloeste Probleme
+
+### 12.1 Ueberblick
+
+GraalVM Native Image kompiliert eine Java-Anwendung Ahead-of-Time (AOT) in ein eigenstaendiges, nativ ausfuehrbares Binary. Im Gegensatz zur klassischen JVM gibt es zur Laufzeit kein Classloading, keinen JIT-Compiler und keinen Metaspace. Alle Klassen, die das Programm verwenden kann, muessen zur Build-Zeit vollstaendig bekannt sein.
+
+Dieser Ansatz hat fundamentale Konsequenzen fuer jede Java-Anwendung, die Reflection, dynamisches Class-Loading oder kryptographische Provider verwendet -- also genau die Techniken, auf denen die EBICS-Banking-Funktionalitaet unserer Anwendung basiert. Der Native-Image-Build des EBICS-Endpunkts erforderte daher die Loesung von drei unabhaengigen, technisch komplexen Problemen.
+
+### 12.2 Build-Pipeline
+
+Der Build erfolgt in zwei Phasen:
+
+**Phase 1: Fat-JAR mit Spring AOT (auf dem Host)**
+```
+mvnw -Pnative spring-boot:process-aot package -DskipTests
+```
+Spring Boot fuehrt Ahead-of-Time-Processing durch und generiert Metadata fuer Spring-eigene Beans, Configuration-Klassen und Dependency-Injection. Das Ergebnis ist eine ~55 MB Fat-JAR mit eingebetteter Reachability-Metadata.
+
+**Phase 2: Native Image Build (in Docker)**
+```
+docker build -f Dockerfile.native.with-ek -t tfl4-ek-bench:native-ek .
+```
+Ein Multi-Stage Docker Build mit `ghcr.io/graalvm/native-image-community:25` als Build-Image und `debian:bookworm-slim` als Runtime-Image. Im Build-Container wird die Fat-JAR extrahiert, die eigene `IaikSecurityFeature`-Klasse kompiliert, und das native Binary erzeugt (~122 MB, Build-Dauer ~2,5 Minuten).
+
+### 12.3 Hybride Metadata-Strategie
+
+Die Reachability-Metadata (welche Klassen zur Laufzeit per Reflection, JNI oder dynamischem Proxy benoetigt werden) stammt aus drei Quellen:
+
+| Quelle | Abgedeckte Klassen | Mechanismus |
+|--------|-------------------|-------------|
+| **Spring AOT** | Spring-Beans, Controller, Config-Klassen | Automatisch durch `spring-boot:process-aot` |
+| **Tracing Agent** | EBICS-Kernel-JARs, IAIK-Crypto, XML/JAXB | GraalVM Tracing Agent zeichnet Reflection-Zugriffe zur Laufzeit auf |
+| **IaikSecurityFeature** | IAIK-Provider-Services (407 Klassen) | Programmatische Registrierung zur Build-Zeit |
+
+Die Tracing-Agent-Metadata liegt in `META-INF/native-image/reachability-metadata.json` (GraalVM 25 Unified Format) und enthaelt: 105 IAIK-Crypto-Klassen, 207 EBICS-Kernel-Klassen, 5 PKCS12-Klassen, 273 XML/JAXB-Referenzen, sowie Glob-Patterns fuer XSD/DTD-Ressourcen-Dateien.
+
+### 12.4 Spring Boot Fat-JAR Classpath-Problem
+
+**Problem:** `native-image -jar app.jar` funktioniert nicht mit Spring Boot Fat-JARs. Der Grund: Spring Boot repackaged JARs verwenden eine Verschachtelungsstruktur, bei der die echten Applikationsklassen unter `BOOT-INF/classes/` liegen und `Main-Class` im Manifest auf `JarLauncher` zeigt. `native-image` wuerde versuchen, `JarLauncher` als Main-Class zu kompilieren, was nicht funktioniert.
+
+**Loesung:** Das Fat-JAR wird im Docker-Build extrahiert und der Classpath manuell zusammengebaut:
+
+```
+meta/META-INF/native-image/     ← Reachability-Metadata
+feature-classes/                ← kompilierte IaikSecurityFeature
+extracted/BOOT-INF/classes/     ← Applikationsklassen + Spring AOT
+extracted/BOOT-INF/lib/*.jar    ← alle Dependencies
+```
+
+Entscheidend ist, dass `extracted/` (das Wurzelverzeichnis) NICHT auf dem Classpath liegt. Es enthaelt die Spring Boot Loader-Klassen (`org/springframework/boot/loader/`), die bei GraalVM zu kaskadierenden Build-Time-Initialisierungsproblemen fuehren:
+- `NestedFileSystemProvider` wird in den Image Heap geschrieben (Objekt-Graph-Problem)
+- `JarUrlConnection` referenziert das `nested:`-Protokoll, das zur Build-Zeit nicht verfuegbar ist
+- `DefaultCleaner` enthaelt einen Daemon-Thread, der nicht im Image Heap erlaubt ist
+
+Ebenso darf nur `META-INF/native-image/` kopiert werden -- nicht das gesamte `META-INF/`-Verzeichnis, weil `META-INF/services/java.nio.file.spi.FileSystemProvider` per SPI den `NestedFileSystemProvider` registrieren wuerde.
+
+### 12.5 Problem 1: IAIK JCE Provider-Verifikation
+
+**Symptom:** `SecurityException: Attempted to verify a provider that was not registered at build time: IAIK version 5.63` zur Laufzeit bei jedem Versuch, IAIK-Kryptographie zu verwenden.
+
+**Ursache:** Die JCA-Architektur (Java Cryptography Architecture) verlangt, dass JCE-Provider mit einem von einer vertrauenswuerdigen CA ausgestellten Code-Signing-Zertifikat signiert sind. `javax.crypto.JceSecurity` prueft dies beim ersten `Cipher.getInstance()`-Aufruf und cacht das Ergebnis in einer internen `ConcurrentHashMap<WeakIdentityWrapper, Object>` namens `verificationResults`. Ist die Verifikation erfolgreich, wird das Sentinel-Objekt `PROVIDER_VERIFIED` (ein leeres `new Object()`) als Wert eingetragen. Bei Fehlschlag wird die geworfene `Exception` gespeichert.
+
+Die IAIK-JAR (`iaik-jce-full-unlimited-5.63.jar`) ist NICHT mit einem JCE-trusted CA-Zertifikat signiert. Zur Build-Zeit schlaegt die Verifikation daher fehl und die Exception wird in den `verificationResults`-Cache geschrieben. GraalVM's `SecurityServicesFeature` friert diesen Cache dann via `FieldValueTransformer` in den Image Heap ein. Zur Laufzeit findet die JCA das gecachte Fehl-Ergebnis und wirft die SecurityException.
+
+**Loesung:** Die Klasse `IaikSecurityFeature` (eine GraalVM Feature-Implementierung, `native-feature/IaikSecurityFeature.java`) wird zur Build-Zeit ausgefuehrt und patcht den `verificationResults`-Cache per Reflection:
+
+1. IAIK-Provider manuell registrieren (`Security.addProvider(new IAIK())`)
+2. `JceSecurity.getVerificationResult(provider)` aufrufen, um den Cache-Eintrag zu erzeugen
+3. Ueber Reflection den `PROVIDER_VERIFIED`-Sentinel aus dem `JceSecurity`-Feld lesen
+4. Einen neuen `WeakIdentityWrapper`-Key fuer den IAIK-Provider erzeugen (interne Klasse von JceSecurity)
+5. Den Cache-Eintrag von der Exception auf `PROVIDER_VERIFIED` ueberschreiben
+
+Der Patch muss in `beforeAnalysis()` erfolgen (nicht in `afterAnalysis()`), weil GraalVM's `SecurityServicesFeature` in seinem eigenen `beforeAnalysis()` einen `FieldValueTransformer` registriert, der die **aktuelle** Map-Instanz spaeter in den Image Heap kopiert. Der Transformer wird erst nach der Analyse ausgefuehrt und liest dann die bereits gepatchte Map.
+
+### 12.6 Problem 2: IAIK Services werden als "unused" entfernt
+
+**Symptom:** `NoSuchAlgorithmException: Algorithm PBES2 not available` zur Laufzeit beim Entschluesseln der PKCS#12-Schluesseldateien fuer die EBICS-Kommunikation.
+
+**Ursache:** GraalVM's `SecurityServicesFeature` entfernt zur Build-Zeit alle Provider-Services, die es nicht als "benutzt" erkennt. Die Erkennung basiert darauf, ob die JCA-API (also `Cipher.getInstance()`, `Mac.getInstance()` etc.) zur Build-Zeit fuer den jeweiligen Algorithmus aufgerufen wurde. Ein blosses `Class.forName()` der Service-Implementierungsklasse genuegt NICHT, weil `SecurityServicesFeature` die Services ueber die JCA-API-Aufrufe trackt, nicht ueber Klassen-Referenzen.
+
+Der IAIK-Provider registriert 408 Services (Cipher, Mac, Signature, KeyFactory etc.). Da zur Build-Zeit kein Anwendungscode laeuft, der diese Services ueber die JCA-API aufruft, werden fast alle entfernt -- einschliesslich `PBES2`, das fuer das Entschluesseln der PKCS#12-Keys benoetigt wird.
+
+**Loesung:** Die `IaikSecurityFeature` instanziiert in `beforeAnalysis()` ALLE 408 IAIK-Services ueber die offiziellen JCA-APIs:
+
+```java
+for (Provider.Service service : iaikProvider.getServices()) {
+    switch (service.getType()) {
+        case "Cipher":    Cipher.getInstance(algorithm, iaikProvider); break;
+        case "Mac":       Mac.getInstance(algorithm, iaikProvider); break;
+        case "Signature": Signature.getInstance(algorithm, iaikProvider); break;
+        // ... weitere Service-Typen
+    }
+}
+```
+
+Ergebnis: 407 Services werden erfolgreich instanziiert, 1 wird uebersprungen (`SecureRandom`, siehe naechster Punkt). Zusaetzlich werden alle 407 Service-Implementierungsklassen explizit fuer Reflection registriert (`RuntimeReflection.register()`), da die JCA Provider-Services per String-Lookup aufgerufen werden und die statische Analyse die Klassen sonst nicht als erreichbar erkennt.
+
+### 12.7 Problem 2b: Random im Image Heap
+
+**Zusammenhang mit dem Service-Stripping:** Der `SecureRandom`-Service des IAIK-Providers kann zur Build-Zeit nicht instanziiert werden, weil Klassen im Package `iaik.security.random` statische Felder vom Typ `java.util.Random` bzw. `java.security.SecureRandom` enthalten. GraalVM verbietet `Random`-Instanzen im Image Heap, weil sie gecachte Seed-Werte enthalten, die bei jedem Start identisch waeren -- ein Sicherheitsrisiko fuer kryptographische Anwendungen.
+
+**Loesung:** Zwei komplementaere Flags:
+
+```
+--initialize-at-build-time=iaik              ← gesamter IAIK-Package-Baum zur Build-Zeit
+--initialize-at-run-time=iaik.security.random ← Ausnahme: Random-Klassen zur Laufzeit
+```
+
+Das erste Flag ist noetig, damit die IAIK-Provider-Instanz und alle Service-Klassen im Image Heap landen. Das zweite Flag nimmt das spezifische Sub-Package aus, dessen Klassen `Random`-Felder enthalten.
+
+Zusaetzlich benoetigt:
+```
+--initialize-at-build-time=ch.qos.logback    ← Netty erzeugt Logback-Logger bei Class-Init
+--initialize-at-build-time=org.slf4j         ← SLF4J-Binding bei Class-Init
+```
+
+### 12.8 Problem 3: XSD-Schema-Validierung mit resource:-URLs
+
+**Symptom:** `SAXParseException: Cannot resolve the name 'ds:DigestValueType'` beim Validieren von EBICS-XML-Nachrichten. Die EBICS-XML-Schemas verwenden eine Kette von `<xs:import>` und `<xs:include>` Referenzen:
+
+```
+ebics_request_H004.xsd
+  → includes ebics_types_H004.xsd
+  → imports  ebics_signature.xsd     (namespace: http://www.ebics.org/S001)
+  → imports  xmldsig-core-schema.xsd (namespace: http://www.w3.org/2000/09/xmldsig#)
+  → DTD:     XMLSchema.dtd → datatypes.dtd
+  → includes ebics_orders_H004.xsd
+```
+
+**Ursache:** Im GraalVM Native Image liefert `ClassLoader.getResource()` URLs mit dem internen `resource:`-Protokoll (z.B. `resource:/schemas/ebics_request_H004.xsd`). Xerces' interner XSD-Loader (`XMLEntityManager`) kann dieses Protokoll nicht verarbeiten. Selbst das Laden einer einzelnen XSD-Datei via `SchemaFactory.newSchema(URL)` schlaegt fehl, wenn die URL das `resource:`-Schema verwendet. Es handelt sich NICHT um ein Problem mit relativer URL-Aufloesung, sondern um eine grundsaetzliche Inkompatibilitaet von Xerces' I/O-Subsystem mit dem GraalVM-internen URL-Protokoll.
+
+**Loesung:** Die Klasse `NativeSchemaFactory` (`src/main/java/.../NativeSchemaFactory.java`) ist eine `SchemaFactory`-Subklasse, die:
+
+1. Die eingebaute System-Default-SchemaFactory ueber `SchemaFactory.newDefaultInstance()` erstellt (oeffentliche JAXP-API, kein Zugriff auf `com.sun.org.apache.xerces.internal.*` noetig, kein `--add-opens`)
+2. Automatisch einen `LSResourceResolver` setzt, der `resource:`-URLs auf `ClassLoader.getResourceAsStream()` abbildet
+3. Relative Schema-Referenzen (z.B. `xmldsig-core-schema.xsd` aus `ebics_types_H004.xsd`) korrekt aufloest, indem der Basis-Pfad der `baseURI` extrahiert wird
+4. Einen `ChainedResolver` bereitstellt fuer den Fall, dass Aufrufer (z.B. der EBICS-Kernel) ihren eigenen Resolver setzen -- der `resource:`-Resolver dient als Fallback
+
+Registrierung ueber drei redundante Mechanismen fuer maximale Zuverlaessigkeit:
+- `META-INF/services/javax.xml.validation.SchemaFactory` (JAXP ServiceLoader)
+- `System.setProperty()` in der `main()`-Methode der Applikation
+- `System.setProperty()` in `IaikSecurityFeature.beforeAnalysis()` (damit die Property im Image Heap landet)
+
+### 12.9 Build-Konfiguration im Docker
+
+Der `native-image`-Aufruf im Dockerfile verwendet folgende Flags:
+
+| Flag | Zweck |
+|------|-------|
+| `--no-fallback` | Kein JVM-Fallback -- reines Native Binary |
+| `-H:+ReportExceptionStackTraces` | Vollstaendige Stack-Traces bei Build-Fehlern |
+| `-march=compatibility` | Breite CPU-Kompatibilitaet (kein AVX512 etc.) |
+| `--initialize-at-build-time=ch.qos.logback` | Logback Class-Init (fuer Netty) |
+| `--initialize-at-build-time=org.slf4j` | SLF4J Class-Init |
+| `--initialize-at-build-time=iaik` | IAIK-Provider im Image Heap |
+| `--initialize-at-run-time=iaik.security.random` | Random-Klassen zur Laufzeit initialisieren |
+| `-H:AdditionalSecurityProviders=iaik.security.provider.IAIK` | Verhindert Entfernung des Providers als "unused" |
+| `--features=de.mattis.jvmoptimdemo.IaikSecurityFeature` | Registriert die Feature-Klasse |
+| `-J--add-opens=java.base/javax.crypto=ALL-UNNAMED` | JPMS-Zugriff fuer Reflection in JceSecurity |
+
+### 12.10 Ergebnis
+
+| Metrik | Wert |
+|--------|------|
+| Typen (reachable) | ~25.574 |
+| Reflection-Registrierungen | ~9.935 |
+| Binary-Groesse | ~122 MB |
+| Docker-Image-Groesse | ~153 MB (Runtime: `debian:bookworm-slim`) |
+| Build-Dauer | ~2,5 Minuten |
+| IAIK-Services im Image | 407 von 408 (SecureRandom uebersprungen) |
+
+Alle EBICS-Funktionen -- PKCS#12-Schluessel-Entschluesselung (PBES2), TLS-Verbindung zum Banking-Server, HPB-Key-Exchange, SEPA-Upload -- funktionieren im Native Image identisch zum JVM-Betrieb.
+
+---
+
+## 13. Limitierungen
 
 | Limitierung | Auswirkung | Mitigation |
 |-------------|-----------|------------|

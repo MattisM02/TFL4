@@ -1,5 +1,7 @@
 package de.mattis.resourcenoptimierung.bench;
 
+import java.util.List;
+
 /**
  * Statistische Hilfsmethoden fuer die Benchmark-Auswertung.
  *
@@ -64,47 +66,65 @@ public final class BenchStats {
     // ───────────────────── Deskriptive Statistik ─────────────────────
 
     /**
-     * Berechnet den arithmetischen Mittelwert.
+     * Berechnet den arithmetischen Mittelwert (NaN-Werte werden ignoriert).
      *
-     * @param values Messwerte (mind. 1 Element)
-     * @return Mittelwert, oder {@code NaN} bei leerem Array
+     * @param values Messwerte (mind. 1 nicht-NaN-Element)
+     * @return Mittelwert, oder {@code NaN} bei leerem Array oder wenn alle Werte NaN sind
      */
     public static double mean(double[] values) {
         if (values == null || values.length == 0) return Double.NaN;
         double sum = 0;
-        for (double v : values) sum += v;
-        return sum / values.length;
+        int count = 0;
+        for (double v : values) {
+            if (!Double.isNaN(v)) {
+                sum += v;
+                count++;
+            }
+        }
+        return count > 0 ? sum / count : Double.NaN;
     }
 
     /**
      * Berechnet die Stichproben-Standardabweichung (mit Bessel-Korrektur, Division durch {@code n-1}).
+     * NaN-Werte werden ignoriert.
      *
-     * @param values Messwerte (mind. 2 Elemente fuer sinnvolles Ergebnis)
-     * @return Stichproben-Standardabweichung, oder {@code NaN} bei weniger als 2 Werten
+     * @param values Messwerte (mind. 2 nicht-NaN-Elemente fuer sinnvolles Ergebnis)
+     * @return Stichproben-Standardabweichung, oder {@code NaN} bei weniger als 2 nicht-NaN-Werten
      */
     public static double sampleStddev(double[] values) {
         if (values == null || values.length < 2) return Double.NaN;
         double m = mean(values);
+        if (Double.isNaN(m)) return Double.NaN;
         double sqSum = 0;
-        for (double v : values) sqSum += (v - m) * (v - m);
-        return Math.sqrt(sqSum / (values.length - 1));
+        int count = 0;
+        for (double v : values) {
+            if (!Double.isNaN(v)) {
+                sqSum += (v - m) * (v - m);
+                count++;
+            }
+        }
+        return count < 2 ? Double.NaN : Math.sqrt(sqSum / (count - 1));
     }
 
     /**
      * Berechnet die Halbbreite des 95%-Konfidenzintervalls.
+     * NaN-Werte werden ignoriert.
      *
      * <p>Formel: {@code t(alpha/2, n-1) * s / sqrt(n)}, wobei {@code s} die
-     * Stichproben-Standardabweichung ist.
+     * Stichproben-Standardabweichung ist und {@code n} die Anzahl nicht-NaN-Werte.
      *
-     * @param values Messwerte (mind. 2 Elemente)
-     * @return Halbbreite des 95%-KI, oder {@code NaN} bei weniger als 2 Werten
+     * @param values Messwerte (mind. 2 nicht-NaN-Elemente)
+     * @return Halbbreite des 95%-KI, oder {@code NaN} bei weniger als 2 nicht-NaN-Werten
      */
     public static double confidenceInterval95(double[] values) {
         if (values == null || values.length < 2) return Double.NaN;
+        int count = 0;
+        for (double v : values) if (!Double.isNaN(v)) count++;
+        if (count < 2) return Double.NaN;
         double s = sampleStddev(values);
-        int df = values.length - 1;
+        int df = count - 1;
         double t = tValue(df);
-        return t * s / Math.sqrt(values.length);
+        return t * s / Math.sqrt(count);
     }
 
     /**
@@ -117,5 +137,84 @@ public final class BenchStats {
     public static double relativeToBaseline(double value, double baseline) {
         if (baseline == 0 || Double.isNaN(baseline)) return Double.NaN;
         return (value / baseline) * 100.0;
+    }
+
+    // ───────────────────── Percentile ─────────────────────
+
+    /**
+     * Berechnet das p-te Perzentil einer bereits sortierten Liste.
+     *
+     * <p>Verwendet nearest-rank Methode: Index = ceil(p * n) - 1, geclampt auf [0, n-1].
+     *
+     * @param sorted  aufsteigend sortierte Werte (darf null/leer sein)
+     * @param p       Perzentil als Bruchteil, z.B. 0.95 fuer p95
+     * @return Perzentil-Wert, oder {@code NaN} bei null/leerer Liste
+     */
+    public static double percentile(List<Double> sorted, double p) {
+        if (sorted == null || sorted.isEmpty()) return Double.NaN;
+        int idx = (int) Math.ceil(p * sorted.size()) - 1;
+        idx = Math.max(0, Math.min(idx, sorted.size() - 1));
+        return sorted.get(idx);
+    }
+
+    // ───────────────────── Docker-Phase-Aggregation ─────────────────────
+
+    /**
+     * Aggregierte Ressourcen-Kennzahlen einer Docker-Sampling-Phase (IDLE, LOAD, POST).
+     *
+     * @param cpuAvg         durchschnittliche CPU-Auslastung (%)
+     * @param memAvg         durchschnittliche Speicherauslastung (%)
+     * @param memMax         maximale Speicherauslastung (%)
+     * @param memUsageAtMax  lesbare Speicherangabe zum Zeitpunkt des Maximums (z.B. "512MiB / 768MiB"),
+     *                       oder {@code null} wenn nicht verfuegbar
+     */
+    public record DockerPhaseAvg(double cpuAvg, double memAvg, double memMax, String memUsageAtMax) {
+
+        /** Konstruktor ohne memUsageAtMax (fuer Kontexte, die es nicht benoetigen). */
+        public DockerPhaseAvg(double cpuAvg, double memAvg, double memMax) {
+            this(cpuAvg, memAvg, memMax, null);
+        }
+    }
+
+    /**
+     * Berechnet die aggregierten Docker-Statistiken fuer eine Sampling-Phase.
+     *
+     * @param samples Liste von Docker-Stat-Samples (darf null/leer sein)
+     * @return aggregierte Kennzahlen, oder {@code null} bei null/leerer Liste
+     */
+    public static DockerPhaseAvg dockerPhaseAvg(List<DockerStatSample> samples) {
+        if (samples == null || samples.isEmpty()) return null;
+
+        double cpuSum = 0.0;
+        double memSum = 0.0;
+        double memMax = -1.0;
+        String memUsageAtMax = null;
+
+        for (DockerStatSample s : samples) {
+            cpuSum += s.cpuPercent();
+            memSum += s.memPercent();
+            if (s.memPercent() > memMax) {
+                memMax = s.memPercent();
+                memUsageAtMax = s.memUsageRaw() + " / " + s.memLimitRaw();
+            }
+        }
+
+        return new DockerPhaseAvg(
+                cpuSum / samples.size(),
+                memSum / samples.size(),
+                memMax,
+                memUsageAtMax
+        );
+    }
+
+    /**
+     * Extrahiert einen Wert aus einem {@link DockerPhaseAvg} mit null-Safety.
+     *
+     * @param phase Phasen-Aggregate (darf null sein)
+     * @param fn    Extractor-Funktion
+     * @return extrahierter Wert, oder {@code NaN} wenn phase null ist
+     */
+    public static double dval(DockerPhaseAvg phase, java.util.function.ToDoubleFunction<DockerPhaseAvg> fn) {
+        return phase != null ? fn.applyAsDouble(phase) : Double.NaN;
     }
 }

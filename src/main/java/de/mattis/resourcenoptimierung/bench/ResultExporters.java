@@ -119,9 +119,9 @@ public final class ResultExporters {
         // --- Latenz-Kennzahlen ---
         w.write(Integer.toString(lats.size())); w.write(",");
         w.write(Double.toString(mean)); w.write(",");
-        w.write(Double.toString(percentile(lats, 0.50))); w.write(",");
-        w.write(Double.toString(percentile(lats, 0.95))); w.write(",");
-        w.write(Double.toString(percentile(lats, 0.99))); w.write(",");
+        w.write(Double.toString(BenchStats.percentile(lats, 0.50))); w.write(",");
+        w.write(Double.toString(BenchStats.percentile(lats, 0.95))); w.write(",");
+        w.write(Double.toString(BenchStats.percentile(lats, 0.99))); w.write(",");
 
         // --- Gesamtzeit + Durchsatz ---
         w.write(Double.toString(r.totalMeasureTimeSeconds())); w.write(",");
@@ -135,9 +135,10 @@ public final class ResultExporters {
         w.write(Long.toString(p.sleepBetweenRequestsMs())); w.write(",");
 
         // --- Docker-Stats (LOAD-Phase) ---
-        double cpuLoadAvg = dockerLoadAvg(r.dockerLoadSamples(), DockerStatSample::cpuPercent);
-        double memLoadAvg = dockerLoadAvg(r.dockerLoadSamples(), DockerStatSample::memPercent);
-        double memLoadMax = dockerLoadMax(r.dockerLoadSamples(), DockerStatSample::memPercent);
+        BenchStats.DockerPhaseAvg loadPhase = BenchStats.dockerPhaseAvg(r.dockerLoadSamples());
+        double cpuLoadAvg = BenchStats.dval(loadPhase, a -> a.cpuAvg());
+        double memLoadAvg = BenchStats.dval(loadPhase, a -> a.memAvg());
+        double memLoadMax = BenchStats.dval(loadPhase, a -> a.memMax());
         w.write(Double.toString(cpuLoadAvg)); w.write(",");
         w.write(Double.toString(memLoadAvg)); w.write(",");
         w.write(Double.toString(memLoadMax)); w.write(",");
@@ -239,20 +240,6 @@ public final class ResultExporters {
     // ---- helpers ----
 
     /**
-     * Berechnet ein Perzentil aus einer aufsteigend sortierten Liste.
-     *
-     * @param sorted aufsteigend sortierte Werte
-     * @param p Perzentil (0..1), z.B. 0.50 oder 0.95
-     * @return Perzentilwert oder NaN bei leerer Liste
-     */
-    private static double percentile(List<Double> sorted, double p) {
-        if (sorted == null || sorted.isEmpty()) return Double.NaN;
-        int idx = (int) Math.ceil(p * sorted.size()) - 1;
-        idx = Math.max(0, Math.min(idx, sorted.size() - 1));
-        return sorted.get(idx);
-    }
-
-    /**
      * Escaped einen String fuer CSV.
      *
      * @param s Roh-String
@@ -290,7 +277,11 @@ public final class ResultExporters {
      */
     private static String js(String s) {
         if (s == null) return "null";
-        return "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
+        return "\"" + s.replace("\\", "\\\\")
+                       .replace("\"", "\\\"")
+                       .replace("\n", "\\n")
+                       .replace("\r", "\\r")
+                       .replace("\t", "\\t") + "\"";
     }
 
     /**
@@ -305,29 +296,4 @@ public final class ResultExporters {
         return flags;
     }
 
-    /**
-     * Berechnet den Durchschnitt eines Feldes ueber Docker-Stat-Samples.
-     *
-     * @param samples Docker-Stat-Samples (darf null/leer sein)
-     * @param extractor Funktion zum Extrahieren des Werts
-     * @return Durchschnitt oder NaN wenn keine Samples
-     */
-    private static double dockerLoadAvg(List<DockerStatSample> samples,
-                                         java.util.function.ToDoubleFunction<DockerStatSample> extractor) {
-        if (samples == null || samples.isEmpty()) return Double.NaN;
-        return samples.stream().mapToDouble(extractor).average().orElse(Double.NaN);
-    }
-
-    /**
-     * Berechnet das Maximum eines Feldes ueber Docker-Stat-Samples.
-     *
-     * @param samples Docker-Stat-Samples (darf null/leer sein)
-     * @param extractor Funktion zum Extrahieren des Werts
-     * @return Maximum oder NaN wenn keine Samples
-     */
-    private static double dockerLoadMax(List<DockerStatSample> samples,
-                                         java.util.function.ToDoubleFunction<DockerStatSample> extractor) {
-        if (samples == null || samples.isEmpty()) return Double.NaN;
-        return samples.stream().mapToDouble(extractor).max().orElse(Double.NaN);
-    }
 }

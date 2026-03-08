@@ -28,6 +28,12 @@ import java.util.List;
 @RestController
 public class DemoController {
 
+    /** Maximal erlaubte Anzahl DTOs fuer /json (Schutz vor OOM durch uebergrosse Requests). */
+    private static final int MAX_JSON_N = 2_000_000;
+
+    /** Maximal erlaubte Anzahl Allokationen fuer /alloc. */
+    private static final int MAX_ALLOC_N = 50_000_000;
+
     /**
      * Payload-lastiger Workload.
      *
@@ -36,7 +42,7 @@ public class DemoController {
      * gemeinsam belastet.
      *
      * Parameter:
-     * - n: Anzahl der zu erzeugenden DTOs (Default: 200000)
+     * - n: Anzahl der zu erzeugenden DTOs (Default: 200000, Max: 2000000)
      *
      * @param n Anzahl der DTOs
      * @return Liste von UserDto, die als JSON serialisiert wird
@@ -45,6 +51,7 @@ public class DemoController {
     public List<UserDto> json(
             @RequestParam(name = "n", defaultValue = "200000") int n
     ) {
+        n = Math.max(0, Math.min(n, MAX_JSON_N));
         List<UserDto> users = new ArrayList<>(n);
         for (int i = 0; i < n; i++) {
             users.add(new UserDto("user" + i, i, i % 2 == 0));
@@ -63,7 +70,7 @@ public class DemoController {
      * in festen Chunks gearbeitet.
      *
      * Parameter:
-     * - n: Zielanzahl der zu erzeugenden Arrays (Default: 10000000)
+     * - n: Zielanzahl der zu erzeugenden Arrays (Default: 10000000, Max: 50000000)
      *
      * @param n Zielanzahl der Allokationen
      * @return einfache Textantwort ("ok <sum>")
@@ -72,6 +79,7 @@ public class DemoController {
     public String alloc(
             @RequestParam(name = "n", defaultValue = "10000000") int n
     ) {
+        n = Math.max(0, Math.min(n, MAX_ALLOC_N));
         long sum = 0;
 
         // chunking, damit keine riesige Liste entsteht

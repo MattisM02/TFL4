@@ -48,12 +48,6 @@ public final class OpenJ9GcLogParser {
             "<exclusive-end\\b[^>]*\\bdurationms=\"([\\d.,]+)\"[^>]*/?>"
     );
 
-    // ── Regex: Timestamp aus beliebigem OpenJ9-GC-Element ─────────────────
-    // timestamp="2026-03-07T10:12:34.567"  oder  timestamp="..."
-    private static final Pattern TIMESTAMP = Pattern.compile(
-            "\\btimestamp=\"([^\"]+)\""
-    );
-
     // ── Regex: Heap-Info nach GC (aus <mem> innerhalb <mem-info>) ─────────
     // <mem type="tenure" free="123456789" total="536870912" ... />
     // <mem type="nursery" free="..." total="..." .../>
@@ -155,8 +149,12 @@ public final class OpenJ9GcLogParser {
                 String gcType = currentGcType != null ? currentGcType : endType;
 
                 // Event erzeugen (auch ohne Pause-Dauer — dann NaN fuer Heap-only-Events)
+                // OpenJ9 verwendet ISO-8601 Timestamps (z.B. "2026-03-07T10:12:34.567")
+                // statt monotoner Sekunden wie HotSpot. Da GcSummary.fromEvents() die
+                // timestampSeconds nur fuer die Reihenfolge nutzt und wir hier keine
+                // monotone Konvertierung vornehmen, setzen wir 0.0 als Platzhalter.
                 events.add(new GcEvent(
-                        0.0, // OpenJ9 timestamps sind ISO-8601, nicht monotone Sekunden
+                        0.0,
                         gcType,
                         "",
                         currentHeapBeforeKb,
@@ -176,37 +174,7 @@ public final class OpenJ9GcLogParser {
 
         if (events.isEmpty()) return null;
 
-        // ── Aggregation (gleiche Logik wie GcLogParser) ──
-        int gcCount = 0;
-        int fullGcCount = 0;
-        double totalPauseMs = 0;
-        double maxPauseMs = 0;
-        long peakHeapAfterGcKb = -1;
-
-        for (GcEvent e : events) {
-            if (!Double.isNaN(e.pauseMs()) && e.pauseMs() >= 0) {
-                gcCount++;
-                totalPauseMs += e.pauseMs();
-                if (e.pauseMs() > maxPauseMs) maxPauseMs = e.pauseMs();
-            }
-            if (isFullGc(e.gcType())) {
-                fullGcCount++;
-            }
-            if (e.heapAfterKb() > peakHeapAfterGcKb) {
-                peakHeapAfterGcKb = e.heapAfterKb();
-            }
-        }
-
-        double avgPauseMs = gcCount > 0 ? totalPauseMs / gcCount : 0;
-        double runtimeMs = totalRuntimeSeconds * 1000.0;
-        double overheadPercent = runtimeMs > 0 ? (totalPauseMs / runtimeMs) * 100.0 : 0;
-
-        return new GcSummary(
-                gcCount, fullGcCount,
-                totalPauseMs, maxPauseMs, avgPauseMs,
-                overheadPercent, peakHeapAfterGcKb,
-                List.copyOf(events)
-        );
+        return GcSummary.fromEvents(events, totalRuntimeSeconds, OpenJ9GcLogParser::isFullGc);
     }
 
     /**

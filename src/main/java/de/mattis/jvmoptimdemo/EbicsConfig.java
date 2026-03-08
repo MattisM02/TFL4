@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.Properties;
 
@@ -46,7 +47,16 @@ public class EbicsConfig {
     }
 
     public String getOrderType()    { return get("orderType", "JI1"); }
-    public String getKeyPassword()  { return get("keyFileA00Password", "nosecret"); }
+    private static final String DEFAULT_KEY_PASSWORD = "nosecret";
+
+    public String getKeyPassword() {
+        String pw = get("keyFileA00Password", DEFAULT_KEY_PASSWORD);
+        if (DEFAULT_KEY_PASSWORD.equals(pw)) {
+            log.warn("Using default key password '{}' — consider setting keyFileA00Password in config",
+                    DEFAULT_KEY_PASSWORD);
+        }
+        return pw;
+    }
 
     public boolean isVerifyTls()    { return Boolean.parseBoolean(get("verifyTls", "false")); }
 
@@ -125,7 +135,7 @@ public class EbicsConfig {
             return p;
         }
 
-        try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
+        try (BufferedReader reader = new BufferedReader(new FileReader(file, StandardCharsets.UTF_8))) {
             String line;
             while ((line = reader.readLine()) != null) {
                 line = line.trim();

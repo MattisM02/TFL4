@@ -1,20 +1,66 @@
 # ── Stage 1: Native Image Build ──────────────────────────────────────────────
 # GraalVM Native Image erfordert das volle JDK + native-image Tool.
 # Der Build braucht viel RAM (empfohlen: mindestens 4 GB fuer docker build).
+#
+# Voraussetzung: FAT-JAR muss mit AOT-Processing gebaut sein:
+#   mvnw -Pnative spring-boot:process-aot package -DskipTests
+#
+# Tracing-Agent-Configs (reachability-metadata.json) liegen in
+# META-INF/native-image/ innerhalb der JAR und werden automatisch gelesen.
 FROM ghcr.io/graalvm/native-image-community:25 AS builder
 
 WORKDIR /build
 COPY target/jvm-optim-demo-0.0.1-SNAPSHOT.jar app.jar
 
-# Spring Boot Native Image Build
+# Spring Boot Fat-JAR extrahieren (BOOT-INF/classes + BOOT-INF/lib)
+RUN mkdir -p extracted && cd extracted && jar xf ../app.jar
+
+# META-INF/native-image/ aus dem Fat-JAR-Root in ein separates Verzeichnis
+# kopieren, damit wir extracted/ (mit den Spring Boot Loader-Klassen) NICHT
+# auf den Classpath legen muessen. Die Loader-Klassen (JarLauncher etc.)
+# verursachen build-time-init Probleme mit GraalVM und werden nicht benoetigt.
+RUN mkdir -p meta/META-INF && cp -r extracted/META-INF/native-image meta/META-INF/
+
+# IaikSecurityFeature kompilieren: Patcht den JCE-Verifikations-Cache zur
+# Build-Zeit, damit der IAIK-Provider (unsigned JAR) als verifiziert gilt.
+# Benoetigt org.graalvm.nativeimage Modul fuer die Feature-API.
+COPY native-feature/IaikSecurityFeature.java /build/feature-src/de/mattis/jvmoptimdemo/IaikSecurityFeature.java
+RUN mkdir -p feature-classes && \
+    CP_COMPILE="extracted/BOOT-INF/classes" && \
+    for jar in extracted/BOOT-INF/lib/*.jar; do CP_COMPILE="$CP_COMPILE:$jar"; done && \
+    javac --add-modules org.graalvm.nativeimage \
+          -cp "$CP_COMPILE" \
+          -d feature-classes \
+          feature-src/de/mattis/jvmoptimdemo/IaikSecurityFeature.java
+
+# Classpath aus extrahiertem Fat-JAR zusammenbauen und Native Image erzeugen
+# meta/ enthaelt nur META-INF/native-image/ (Tracing Agent + GraalVM Repo Metadata)
+# extracted/BOOT-INF/classes/ enthaelt die App-Klassen + Spring AOT
+# extracted/BOOT-INF/lib/*.jar enthaelt alle Dependencies
+# feature-classes/ enthaelt die kompilierte IaikSecurityFeature
 # --no-fallback: kein JVM-Fallback (reines Native Binary)
 # -H:+ReportExceptionStackTraces: bessere Fehlerausgabe bei Build-Fehlern
-RUN native-image \
-    --no-fallback \
-    -H:+ReportExceptionStackTraces \
-    --initialize-at-build-time=org.springframework.boot.loader.nio.file.NestedFileSystemProvider \
-    -jar app.jar \
-    -o app
+# -march=compatibility: breite CPU-Kompatibilitaet (kein AVX512 etc.)
+# --features: Registriert IaikSecurityFeature zum Patchen der IAIK-JCE-Verifikation
+# -H:AdditionalSecurityProviders: Verhindert, dass der IAIK-Provider beim Filtern
+#   der verificationResults als "unused" entfernt wird
+# -J--add-opens: JPMS-Zugriff fuer Reflection in javax.crypto.JceSecurity
+RUN CP="meta:feature-classes:extracted/BOOT-INF/classes" && \
+    for jar in extracted/BOOT-INF/lib/*.jar; do CP="$CP:$jar"; done && \
+    native-image \
+        --no-fallback \
+        -H:+ReportExceptionStackTraces \
+        -march=compatibility \
+        --initialize-at-build-time=ch.qos.logback \
+        --initialize-at-build-time=org.slf4j \
+        --initialize-at-build-time=iaik \
+        --initialize-at-run-time=iaik.security.random \
+        -H:AdditionalSecurityProviders=iaik.security.provider.IAIK \
+        --features=de.mattis.jvmoptimdemo.IaikSecurityFeature \
+        -J--add-opens=java.base/javax.crypto=ALL-UNNAMED \
+        -cp "$CP" \
+        de.mattis.jvmoptimdemo.ResourcenOptimierungTfl4Application \
+        -o app
 
 # ── Stage 2: Minimales Runtime-Image ────────────────────────────────────────
 FROM debian:bookworm-slim

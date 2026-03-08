@@ -115,9 +115,9 @@ public final class ConsoleSummaryPrinter {
 
         if (!allLatencies.isEmpty()) {
             System.out.printf("Latency (s)      p50/p95/p99: %.3f / %.3f / %.3f  (n=%d)%n",
-                    percentile(allLatencies, 0.50),
-                    percentile(allLatencies, 0.95),
-                    percentile(allLatencies, 0.99),
+                    BenchStats.percentile(allLatencies, 0.50),
+                    BenchStats.percentile(allLatencies, 0.95),
+                    BenchStats.percentile(allLatencies, 0.99),
                     allLatencies.size()
             );
         }
@@ -151,8 +151,8 @@ public final class ConsoleSummaryPrinter {
                     List<Double> l = new ArrayList<>(r.latenciesSeconds());
                     l.sort(Double::compareTo);
 
-                    double median = percentile(l, 0.50);
-                    double p95 = percentile(l, 0.95);
+                    double median = BenchStats.percentile(l, 0.50);
+                    double p95 = BenchStats.percentile(l, 0.95);
                     double mean = l.stream().mapToDouble(Double::doubleValue).average().orElse(Double.NaN);
 
                     String flags = normalizeFlagsForPrint(r.effectiveJavaToolOptions());
@@ -175,16 +175,16 @@ public final class ConsoleSummaryPrinter {
                             r.totalMeasureTimeSeconds(),
                             r.throughputReqPerSec());
 
-                    DockerPhaseStats idle = phaseStats(r.dockerIdleSamples());
-                    DockerPhaseStats load = phaseStats(r.dockerLoadSamples());
-                    DockerPhaseStats post = phaseStats(r.dockerPostSamples());
+                    BenchStats.DockerPhaseAvg idle = BenchStats.dockerPhaseAvg(r.dockerIdleSamples());
+                    BenchStats.DockerPhaseAvg load = BenchStats.dockerPhaseAvg(r.dockerLoadSamples());
+                    BenchStats.DockerPhaseAvg post = BenchStats.dockerPhaseAvg(r.dockerPostSamples());
 
                     // Fokus: Werte unter Last
                     if (load != null) {
                         System.out.printf("   docker LOAD: cpu avg=%.2f%%  mem avg=%.2f%%  mem max=%.2f%%  memUsage(max)=%s%n",
                                 load.cpuAvg(),
-                                load.memPercAvg(),
-                                load.memPercMax(),
+                                load.memAvg(),
+                                load.memMax(),
                                 load.memUsageAtMax()
                         );
                     }
@@ -192,11 +192,11 @@ public final class ConsoleSummaryPrinter {
                     // Optional: idle/post zum Vergleich
                     if (idle != null) {
                         System.out.printf("   docker IDLE: mem avg=%.2f%%  mem max=%.2f%%%n",
-                                idle.memPercAvg(), idle.memPercMax());
+                                idle.memAvg(), idle.memMax());
                     }
                     if (post != null) {
                         System.out.printf("   docker POST: mem avg=%.2f%%  mem max=%.2f%%%n",
-                                post.memPercAvg(), post.memPercMax());
+                                post.memAvg(), post.memMax());
                     }
 
                     System.out.println("   flags: " + flags);
@@ -216,7 +216,7 @@ public final class ConsoleSummaryPrinter {
         if (l == null || l.isEmpty()) return Double.NaN;
         List<Double> sorted = new ArrayList<>(l);
         sorted.sort(Double::compareTo);
-        return percentile(sorted, 0.95);
+        return BenchStats.percentile(sorted, 0.95);
     }
 
     /**
@@ -256,13 +256,13 @@ public final class ConsoleSummaryPrinter {
             double[] p50s = runs.stream().mapToDouble(r -> {
                 List<Double> l = new ArrayList<>(r.latenciesSeconds());
                 l.sort(Double::compareTo);
-                return percentile(l, 0.50);
+                return BenchStats.percentile(l, 0.50);
             }).toArray();
 
             double[] p95s = runs.stream().mapToDouble(r -> {
                 List<Double> l = new ArrayList<>(r.latenciesSeconds());
                 l.sort(Double::compareTo);
-                return percentile(l, 0.95);
+                return BenchStats.percentile(l, 0.95);
             }).toArray();
 
             double[] means = runs.stream().mapToDouble(r ->
@@ -288,90 +288,16 @@ public final class ConsoleSummaryPrinter {
      */
     private static String fmtMeanStddev(double[] values, String fmt) {
         double mean = BenchStats.mean(values);
-        double stddev = values.length >= 2 ? BenchStats.sampleStddev(values) : 0.0;
-
+        if (values.length < 2) {
+            return String.format(fmt, mean);
+        }
+        double stddev = BenchStats.sampleStddev(values);
         return String.format(fmt + " +/- " + fmt, mean, stddev);
     }
 
-    /**
-     * Berechnet ein Perzentil aus einer sortierten Liste.
-     *
-     * Hinweis:
-     * - Die Liste muss aufsteigend sortiert sein.
-     * - Verwendet einen einfachen Nearest-Rank-Ansatz.
-     *
-     * @param sorted aufsteigend sortierte Werte
-     * @param p Perzentil zwischen 0 und 1 (z.B. 0.50, 0.95)
-     * @return Perzentilwert oder NaN, wenn keine Daten vorhanden sind
-     */
-    private static double percentile(List<Double> sorted, double p) {
-        if (sorted == null || sorted.isEmpty()) return Double.NaN;
-        int idx = (int) Math.ceil(p * sorted.size()) - 1;
-        idx = Math.max(0, Math.min(idx, sorted.size() - 1));
-        return sorted.get(idx);
-    }
-
-    /**
-     * Formatiert die Flags fuer die Konsolenausgabe.
-     *
-     * @param flags effektive JAVA_TOOL_OPTIONS (null bei Native)
-     * @return "(native)", "(none)" oder der Flag-String
-     */
     private static String normalizeFlagsForPrint(String flags) {
         if (flags == null) return "(native)";
         if (flags.isBlank()) return "(none)";
         return flags;
     }
-
-    /**
-     * Verdichtete Kennzahlen fuer Docker-Stats einer Phase (IDLE, LOAD, POST).
-     *
-     * Enthaelt nur die wichtigsten Werte, damit die Konsolenausgabe kompakt bleibt.
-     *
-     * @param cpuAvg durchschnittliche CPU-Auslastung in Prozent
-     * @param memPercAvg durchschnittliche Speicherauslastung in Prozent
-     * @param memPercMax maximale Speicherauslastung in Prozent
-     * @param memUsageAtMax Speicherbelegung als "usage / limit" zum Zeitpunkt des Maximums
-     */
-    private record DockerPhaseStats(
-            double cpuAvg,
-            double memPercAvg,
-            double memPercMax,
-            String memUsageAtMax
-    ) {}
-
-    /**
-     * Verdichtet mehrere DockerStatSample zu einer kompakten Zusammenfassung.
-     *
-     * Es werden Mittelwerte fuer CPU und Memory sowie das Memory-Maximum berechnet.
-     * Zusaetzlich wird der Rohwert "usage / limit" fuer das Memory-Maximum gespeichert.
-     *
-     * @param samples Docker-Stat-Samples einer Phase
-     * @return Zusammenfassung oder null, wenn keine Samples vorhanden sind
-     */
-    private static DockerPhaseStats phaseStats(List<DockerStatSample> samples) {
-        if (samples == null || samples.isEmpty()) return null;
-
-        double cpuSum = 0.0;
-        double memSum = 0.0;
-
-        double memMax = -1.0;
-        String memUsageAtMax = null;
-
-        for (DockerStatSample s : samples) {
-            cpuSum += s.cpuPercent();
-            memSum += s.memPercent();
-
-            if (s.memPercent() > memMax) {
-                memMax = s.memPercent();
-                memUsageAtMax = s.memUsageRaw() + " / " + s.memLimitRaw();
-            }
-        }
-
-        double cpuAvg = cpuSum / samples.size();
-        double memAvg = memSum / samples.size();
-
-        return new DockerPhaseStats(cpuAvg, memAvg, memMax, memUsageAtMax);
-    }
-
 }

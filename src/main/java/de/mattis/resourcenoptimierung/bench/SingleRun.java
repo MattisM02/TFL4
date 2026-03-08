@@ -1,8 +1,6 @@
 package de.mattis.resourcenoptimierung.bench;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -82,7 +80,7 @@ public class SingleRun {
      * @param profile Messprofil
      */
     public SingleRun(BenchmarkConfig cfg, BenchmarkScenario scenario, int workloadN, MeasurementProfile profile) {
-        this(cfg, scenario, workloadN, profile, 8080, Duration.ofSeconds(120), 1);
+        this(cfg, scenario, workloadN, profile, BenchDefaults.DEFAULT_HOST_PORT, BenchDefaults.READINESS_TIMEOUT, 1);
     }
 
     /**
@@ -113,11 +111,7 @@ public class SingleRun {
      * @return Pfad inkl. n-Parameter
      */
     private String workloadPath() {
-        return switch (scenario) {
-            case PAYLOAD_HEAVY_JSON -> "/json?n=" + workloadN;
-            case ALLOC_HEAVY_OK -> "/alloc?n=" + workloadN;
-            case EBICS_UPLOAD -> "/ebics/upload?n=" + workloadN;
-        };
+        return scenario.path() + "?n=" + workloadN;
     }
 
     /**
@@ -181,15 +175,15 @@ public class SingleRun {
             //    Container-Alive-Check: Erkennt fruehzeitig, wenn der Container
             //    bereits beendet ist (z.B. Crash bei NATIVE ohne Reachability-Metadata),
             //    statt das volle 120s Timeout abzuwarten.
-            ReadinessProber prober = new ReadinessProber();
-
             // Container-Alive-Check: prueft via "docker inspect" ob der Container noch laeuft
             final String cid = containerId;
             ReadinessProber.ContainerAliveCheck aliveCheck = () -> isContainerRunning(cid);
 
             String path = workloadPath(); // z.B. "/json" oder "/alloc"
-            ReadinessProber.ReadinessResult rr =
-                    prober.waitUntilReady("http://localhost:" + port, readinessTimeout, path, aliveCheck);
+            ReadinessProber.ReadinessResult rr;
+            try (ReadinessProber prober = new ReadinessProber()) {
+                rr = prober.waitUntilReady("http://localhost:" + port, readinessTimeout, path, aliveCheck);
+            }
 
             // readinessMs = Zeit von VOR docker run bis ready (inkl. Container-Startup)
             long readinessMs = (System.nanoTime() - startNanos) / 1_000_000;
@@ -202,8 +196,10 @@ public class SingleRun {
             // 6) Waehrend Load parallel samplen
             //    Startet einen Thread, der waehrend der Lastphase docker stats sammelt.
             //    Die Samples landen in dockerLoadSamples (shared list).
-            List<DockerStatSample> dockerLoadSamples = new ArrayList<>();
-            Thread sampler = startDockerSampler(dockerLoadSamples, containerId, 10, 1);
+            //    Der Sampler laeuft bis er via interrupt() gestoppt wird, damit die
+            //    Sampling-Dauer exakt der Warmup+Messphase entspricht (M8 fix).
+            List<DockerStatSample> dockerLoadSamples = Collections.synchronizedList(new ArrayList<>());
+            Thread sampler = startDockerSampler(dockerLoadSamples, containerId, 1);
 
             // 7) First request separat messen
             //    Diese Metrik zeigt oft Cold-Path / JIT / Cache-Effekte nach Readiness.
@@ -224,9 +220,9 @@ public class SingleRun {
             double totalMeasureTimeSeconds = (measureEnd - measureStart) / 1_000_000_000.0;
             double throughputReqPerSec = latenciesSeconds.size() / totalMeasureTimeSeconds;
 
-            // 10) Warten bis sampler fertig (best-effort)
-            //     Wenn der Sampler nicht rechtzeitig fertig wird, brechen wir ab,
-            //     um keinen Run dauerhaft zu blockieren.
+            // 10) Sampler stoppen (laeuft seit Schritt 6 bis interrupt)
+            //     Interrupt signalisiert dem Sampler, dass die Lastphase vorbei ist.
+            sampler.interrupt();
             try {
                 sampler.join(Duration.ofSeconds(15).toMillis());
             } catch (InterruptedException ignored) {
@@ -248,7 +244,7 @@ public class SingleRun {
                     String fullLog = dockerLogsAll(containerId);
 
                     // Level 1: Rohlog speichern
-                    Path logDir = Path.of("bench-results", "gc-logs");
+                    Path logDir = Path.of(BenchDefaults.OUTPUT_DIR, BenchDefaults.GC_LOGS_SUBDIR);
                     Files.createDirectories(logDir);
                     String filename = cfg.name() + "-rep" + repetition + ".log";
                     Path logFile = logDir.resolve(filename);
@@ -278,33 +274,18 @@ public class SingleRun {
             //     Speichert sowohl die Rohdaten (Latenzen + Docker-Samples) als auch Metadaten,
             //     damit spaetere Auswertung/Exports vollstaendig sind.
             RunResult result = new RunResult(
-                    cfg.name(),
-                    cfg.dockerImage(),
-                    readinessMs,
-                    firstSeconds,
-                    latenciesSeconds,
-                    totalMeasureTimeSeconds,
-                    throughputReqPerSec,
-                    effectiveJavaToolOptions,
-                    readinessCheckUsed,
-                    startupLogSnippet,
-                    scenario,
-                    workloadN,
-                    path,
-                    profile,
-                    dockerIdleSamples,
-                    dockerLoadSamples,
-                    dockerPostSamples,
-                    repetition,
-                    gcSummary,
-                    gcLogPath,
-                    cfg.category(),
-                    cfg.runtimeModel()
-            );
+                    new RunResult.Metadata(cfg.name(), cfg.dockerImage(),
+                            effectiveJavaToolOptions, readinessCheckUsed, startupLogSnippet,
+                            scenario, workloadN, path, profile, repetition,
+                            cfg.category(), cfg.runtimeModel()),
+                    new RunResult.Timing(readinessMs, firstSeconds, latenciesSeconds,
+                            totalMeasureTimeSeconds, throughputReqPerSec),
+                    new RunResult.Docker(dockerIdleSamples, dockerLoadSamples,
+                            dockerPostSamples, gcSummary, gcLogPath));
 
             return result;
 
-        } catch (RuntimeException e) {
+        } catch (Exception e) {
             if (containerId != null && !containerId.isBlank()) {
                 // Bei Fehlern: Log-Auszug ausgeben, BEVOR der Container entfernt wird.
                 try {
@@ -320,8 +301,9 @@ public class SingleRun {
             // Log-Auszug wird im catch-Block VOR dem Cleanup ausgegeben.
             if (containerId != null && !containerId.isBlank()) {
                 System.err.println("Cleaning up container: " + containerId);
-                dockerStop(containerId);
-                dockerRm(containerId);
+                try {
+                    exec(List.of("docker", "rm", "-f", containerId), Duration.ofSeconds(10));
+                } catch (Exception ignored) {}
             }
         }
     }
@@ -341,13 +323,13 @@ public class SingleRun {
             // die mit diesem Port-Mapping erstellt wurden.
             // -a ist wichtig, weil "Created"-State-Container den Port blockieren,
             // aber von "docker ps" (ohne -a) nicht angezeigt werden.
-            ExecResult all = exec(List.of(
+            ProcessRunner.ExecResult all = exec(List.of(
                     "docker", "ps", "-aq", "--filter", "publish=" + port
             ), Duration.ofSeconds(10));
 
-            if (all.exitCode != 0 || all.stdout.trim().isEmpty()) return;
+            if (all.exitCode() != 0 || all.stdout().trim().isEmpty()) return;
 
-            for (String id : all.stdout.trim().split("\\s+")) {
+            for (String id : all.stdout().trim().split("\\s+")) {
                 if (!id.isBlank()) {
                     System.err.println("WARNING: Removing stale container " + id + " on port " + port);
                     exec(List.of("docker", "rm", "-f", id), Duration.ofSeconds(10));
@@ -383,18 +365,18 @@ public class SingleRun {
         List<String> cmd = new ArrayList<>(List.of(
                 "docker", "run",
                 "-d",
-                "-p", port + ":8080",
-                "--cpus", "1",
-                "--memory", "768m",
-                "--memory-swap", "768m"   // gleich wie --memory => Swap deaktiviert (Kubernetes-Verhalten)
+                "-p", port + ":" + BenchDefaults.CONTAINER_PORT,
+                "--cpus", BenchDefaults.DOCKER_CPUS,
+                "--memory", BenchDefaults.DOCKER_MEMORY,
+                "--memory-swap", BenchDefaults.DOCKER_MEMORY_SWAP   // gleich wie --memory => Swap deaktiviert (Kubernetes-Verhalten)
         ));
 
         // EBICS: Hostname des Host-Rechners im Container auflösbar machen,
-        // damit der EK-Client den TravicLink-Server via https://nbag0342:7070/ erreichen kann.
+        // damit der EK-Client den TravicLink-Server via https://<host>:7070/ erreichen kann.
         // host-gateway ist ein Docker-Feature (seit 20.10) das auf die Host-IP zeigt.
-        if (TravicLinkManager.isEbicsScenario(scenario)) {
+        if (scenario.isEbics()) {
             cmd.add("--add-host");
-            cmd.add("nbag0342:host-gateway");
+            cmd.add(BenchDefaults.HOST_NAME + ":host-gateway");
         }
 
         // JAVA_TOOL_OPTIONS setzen (nur fuer JVM, nicht fuer native)
@@ -408,12 +390,12 @@ public class SingleRun {
 
         cmd.add(cfg.dockerImage());
 
-        ExecResult res = exec(cmd, Duration.ofSeconds(30));
-        if (res.exitCode != 0) {
+        ProcessRunner.ExecResult res = exec(cmd, Duration.ofSeconds(30));
+        if (res.exitCode() != 0) {
             // Docker erzeugt manchmal einen Container im "Created"-State, auch wenn
             // docker run fehlschlaegt (z.B. bei Port-Konflikt, exit 125).
             // Diesen Container hier best-effort entfernen, damit er nicht als Zombie bleibt.
-            String partialId = res.stdout.trim();
+            String partialId = res.stdout().trim();
             if (!partialId.isBlank()) {
                 System.err.println("docker run failed — removing partial container: " + partialId);
                 try {
@@ -422,16 +404,16 @@ public class SingleRun {
             }
 
             throw new RuntimeException(
-                    "docker run failed (exit " + res.exitCode + ")\n" +
+                    "docker run failed (exit " + res.exitCode() + ")\n" +
                             "cmd: " + formatCmd(cmd) + "\n" +
-                            "stderr: " + res.stderr + "\n" +
-                            "stdout: " + res.stdout
+                            "stderr: " + res.stderr() + "\n" +
+                            "stdout: " + res.stdout()
             );
         }
 
-        String id = res.stdout.trim();
+        String id = res.stdout().trim();
         if (id.isEmpty()) {
-            throw new RuntimeException("docker run returned empty container id. stdout=" + res.stdout + ", stderr=" + res.stderr);
+            throw new RuntimeException("docker run returned empty container id. stdout=" + res.stdout() + ", stderr=" + res.stderr());
         }
         return id;
     }
@@ -461,7 +443,7 @@ public class SingleRun {
         URI uri = URI.create("http://localhost:" + port + path);
 
         // EBICS-Uploads sind langsam (~1-3s pro Upload), daher laengeres Timeout
-        Duration requestTimeout = scenario == BenchmarkScenario.EBICS_UPLOAD
+        Duration requestTimeout = scenario.isEbics()
                 ? Duration.ofSeconds(120) : Duration.ofSeconds(5);
 
         HttpRequest req = HttpRequest.newBuilder(uri)
@@ -585,12 +567,12 @@ public class SingleRun {
      */
     private DockerStatSample dockerStatsNoStream(String containerId) throws IOException, InterruptedException {
         String format = "{{.CPUPerc}}|{{.MemUsage}}|{{.MemPerc}}|{{.NetIO}}|{{.BlockIO}}|{{.PIDs}}";
-        ExecResult r = exec(List.of(
+        ProcessRunner.ExecResult r = exec(List.of(
                 "docker", "stats", "--no-stream", "--format", format, containerId
         ), Duration.ofSeconds(10));
-        if (r.exitCode != 0) throw new RuntimeException("docker stats failed: " + r.stderr);
+        if (r.exitCode() != 0) throw new RuntimeException("docker stats failed: " + r.stderr());
 
-        String line = r.stdout.trim();
+        String line = r.stdout().trim();
         return DockerStatSample.parse(line);
     }
 
@@ -618,28 +600,6 @@ public class SingleRun {
     }
 
     /**
-     * Stoppt einen Container. Fehler werden ignoriert.
-     *
-     * @param containerId Container-ID
-     */
-    private void dockerStop(String containerId) {
-        try {
-            exec(List.of("docker", "stop", containerId), Duration.ofSeconds(10));
-        } catch (Exception ignored) {}
-    }
-
-    /**
-     * Entfernt einen Container. Fehler werden ignoriert.
-     *
-     * @param containerId Container-ID
-     */
-    private void dockerRm(String containerId) {
-        try {
-            exec(List.of("docker", "rm", "-f", containerId), Duration.ofSeconds(10));
-        } catch (Exception ignored) {}
-    }
-
-    /**
      * Prueft, ob ein Container noch im Status "running" ist.
      *
      * Nutzt "docker inspect --format={{.State.Running}}" fuer einen schnellen Check.
@@ -651,69 +611,14 @@ public class SingleRun {
      */
     private static boolean isContainerRunning(String containerId) {
         try {
-            ExecResult res = exec(List.of(
+            ProcessRunner.ExecResult res = exec(List.of(
                     "docker", "inspect", "--format", "{{.State.Running}}", containerId
             ), Duration.ofSeconds(5));
-            return res.exitCode == 0 && res.stdout.trim().equalsIgnoreCase("true");
+            return res.exitCode() == 0 && res.stdout().trim().equalsIgnoreCase("true");
         } catch (Exception e) {
             return false;
         }
     }
-
-    /**
-     * Fuehrt ein Kommando aus und sammelt stdout/stderr.
-     *
-     * @param cmd Kommando als Liste
-     * @param timeout maximale Laufzeit
-     * @return ExecResult
-     * @throws IOException wenn der Prozess nicht gestartet werden kann
-     * @throws InterruptedException wenn der Aufruf unterbrochen wird
-     */
-    private static ExecResult exec(List<String> cmd, Duration timeout) throws IOException, InterruptedException {
-        ProcessBuilder pb = new ProcessBuilder(cmd);
-        Process p = pb.start();
-
-        // Stdout und stderr parallel lesen, BEVOR waitFor() aufgerufen wird.
-        // Verhindert Pipe-Deadlock: Wenn der OS-Pipe-Buffer (~64KB) volllaeuft,
-        // blockiert der Kindprozess beim Schreiben und waitFor() haengt ewig.
-        CompletableFuture<String> stdoutFuture = CompletableFuture.supplyAsync(() -> {
-            try { return readAll(p.getInputStream()); } catch (IOException e) { return ""; }
-        });
-        CompletableFuture<String> stderrFuture = CompletableFuture.supplyAsync(() -> {
-            try { return readAll(p.getErrorStream()); } catch (IOException e) { return ""; }
-        });
-
-        boolean ok = p.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS);
-        if (!ok) {
-            p.destroyForcibly();
-            stdoutFuture.cancel(true);
-            stderrFuture.cancel(true);
-            throw new RuntimeException("Command timed out: " + String.join(" ", cmd));
-        }
-
-        String stdout = stdoutFuture.join();
-        String stderr = stderrFuture.join();
-        return new ExecResult(p.exitValue(), stdout, stderr);
-    }
-
-    /**
-     * Liest einen Stream komplett ein und gibt ihn als String zurueck.
-     *
-     * @param in InputStream
-     * @return Inhalt als String
-     * @throws IOException wenn Lesen fehlschlaegt
-     */
-    private static String readAll(java.io.InputStream in) throws IOException {
-        try (BufferedReader br = new BufferedReader(new InputStreamReader(in))) {
-            StringBuilder sb = new StringBuilder();
-            String line;
-            while ((line = br.readLine()) != null) {
-                sb.append(line).append('\n');
-            }
-            return sb.toString();
-        }
-    }
-
 
     /**
      * Baut den JAVA_TOOL_OPTIONS-String fuer diesen Run.
@@ -728,7 +633,7 @@ public class SingleRun {
      * @param cfg Benchmark-Konfiguration
      * @return Flags als String oder null bei native
      */
-    private static String computeEffectiveJavaToolOptions(BenchmarkConfig cfg) {
+    static String computeEffectiveJavaToolOptions(BenchmarkConfig cfg) {
         if (!cfg.runtimeType().isJvm()) return null;
 
         List<String> args = new ArrayList<>();
@@ -762,11 +667,11 @@ public class SingleRun {
         cmd.add(Integer.toString(tailLines));
         cmd.add(containerId);
 
-        ExecResult res = exec(cmd, Duration.ofSeconds(10));
-        if (res.exitCode != 0) {
-            return "docker logs failed: " + res.stderr;
+        ProcessRunner.ExecResult res = exec(cmd, Duration.ofSeconds(10));
+        if (res.exitCode() != 0) {
+            return "docker logs failed: " + res.stderr();
         }
-        return res.stdout;
+        return res.stdout();
     }
 
     /**
@@ -780,12 +685,12 @@ public class SingleRun {
      */
     private String dockerLogsAll(String containerId) throws IOException, InterruptedException {
         List<String> cmd = List.of("docker", "logs", containerId);
-        ExecResult res = exec(cmd, Duration.ofSeconds(60));
-        if (res.exitCode != 0) {
-            return "docker logs failed: " + res.stderr;
+        ProcessRunner.ExecResult res = exec(cmd, Duration.ofSeconds(60));
+        if (res.exitCode() != 0) {
+            return "docker logs failed: " + res.stderr();
         }
         // GC-Logs gehen teilweise nach stderr (docker mischt stdout/stderr)
-        return res.stdout + (res.stderr.isBlank() ? "" : "\n" + res.stderr);
+        return res.stdout() + (res.stderr().isBlank() ? "" : "\n" + res.stderr());
     }
 
     /**
@@ -838,15 +743,27 @@ public class SingleRun {
      * @param sleepSeconds Pause zwischen Snapshots in Sekunden
      * @return gestarteter Thread
      */
-    private Thread startDockerSampler(List<DockerStatSample> target, String containerId, int samples, int sleepSeconds) {
+    /**
+     * Startet einen Daemon-Thread, der docker stats samplet bis er per interrupt() gestoppt wird.
+     * Die Samples werden in die uebergebene (synchronisierte) Liste geschrieben.
+     *
+     * @param target Zielliste fuer die Samples (muss thread-safe sein)
+     * @param containerId Docker-Container-ID
+     * @param sleepSeconds Pause zwischen Samples in Sekunden
+     * @return gestarteter Daemon-Thread (stoppen via interrupt + join)
+     */
+    private Thread startDockerSampler(List<DockerStatSample> target, String containerId, int sleepSeconds) {
         Thread t = new Thread(() -> {
             try {
-                for (int i = 0; i < samples; i++) {
+                while (!Thread.currentThread().isInterrupted()) {
                     target.add(dockerStatsNoStream(containerId));
-                    if (i < samples - 1) Thread.sleep(sleepSeconds * 1000L);
+                    Thread.sleep(sleepSeconds * 1000L);
                 }
+            } catch (InterruptedException e) {
+                // Normaler Abbruch: Lastphase beendet
+                Thread.currentThread().interrupt();
             } catch (Exception ignored) {
-                // best-effort
+                // best-effort: docker stats kann bei Container-Stop fehlschlagen
             }
         }, "docker-stats-sampler");
         t.setDaemon(true);
@@ -855,11 +772,11 @@ public class SingleRun {
     }
 
     /**
-     * Rueckgabecontainer fuer exec.
-     *
-     * @param exitCode Exit-Code des Prozesses
-     * @param stdout Standardausgabe
-     * @param stderr Fehlerausgabe
+     * Delegiert an {@link ProcessRunner#exec(List, Duration)}.
+     * Haelt die interne API stabil (private static, kurzer Name).
      */
-    private record ExecResult(int exitCode, String stdout, String stderr) {}
+    private static ProcessRunner.ExecResult exec(List<String> cmd, Duration timeout)
+            throws IOException, InterruptedException {
+        return ProcessRunner.exec(cmd, timeout);
+    }
 }

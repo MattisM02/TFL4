@@ -128,37 +128,7 @@ public final class GcLogParser {
 
         if (events.isEmpty()) return null;
 
-        // ── Aggregate berechnen ──
-        int gcCount = 0;
-        int fullGcCount = 0;
-        double totalPauseMs = 0;
-        double maxPauseMs = 0;
-        long peakHeapAfterGcKb = -1;
-
-        for (GcEvent e : events) {
-            if (!Double.isNaN(e.pauseMs()) && e.pauseMs() >= 0) {
-                gcCount++;
-                totalPauseMs += e.pauseMs();
-                if (e.pauseMs() > maxPauseMs) maxPauseMs = e.pauseMs();
-            }
-            if (isFullGc(e.gcType())) {
-                fullGcCount++;
-            }
-            if (e.heapAfterKb() > peakHeapAfterGcKb) {
-                peakHeapAfterGcKb = e.heapAfterKb();
-            }
-        }
-
-        double avgPauseMs = gcCount > 0 ? totalPauseMs / gcCount : 0;
-        double runtimeMs = totalRuntimeSeconds * 1000.0;
-        double overheadPercent = runtimeMs > 0 ? (totalPauseMs / runtimeMs) * 100.0 : 0;
-
-        return new GcSummary(
-                gcCount, fullGcCount,
-                totalPauseMs, maxPauseMs, avgPauseMs,
-                overheadPercent, peakHeapAfterGcKb,
-                List.copyOf(events)
-        );
+        return GcSummary.fromEvents(events, totalRuntimeSeconds, GcLogParser::isFullGc);
     }
 
     // ── Interne Hilfsmethoden ────────────────────────────────────────────

@@ -12,6 +12,7 @@ import java.nio.file.Files;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Erzeugt realistische SEPA Credit Transfer Testdateien (pain.001.003.03).
@@ -29,6 +30,9 @@ public class SepaTestFileGenerator {
     private static final Logger log = LoggerFactory.getLogger(SepaTestFileGenerator.class);
     private static final String TEMPLATE_PATH = "templates/sepa-pain001-template.xml";
 
+    /** Monotoner Zaehler fuer eindeutige IDs, auch bei gleichzeitigen Aufrufen. */
+    private static final AtomicLong ID_COUNTER = new AtomicLong(System.currentTimeMillis());
+
     private volatile String templateContent;
 
     /**
@@ -45,9 +49,9 @@ public class SepaTestFileGenerator {
     public File generate(String outputPath) throws IOException {
         String template = loadTemplate();
 
-        String msgId = "MSG-" + System.currentTimeMillis();
-        String pmtInfId = "PMT-" + System.currentTimeMillis();
-        String e2eId = "E2E-" + System.currentTimeMillis();
+        String msgId = "MSG-" + ID_COUNTER.incrementAndGet();
+        String pmtInfId = "PMT-" + ID_COUNTER.incrementAndGet();
+        String e2eId = "E2E-" + ID_COUNTER.incrementAndGet();
         String creDtTm = LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
         String reqExecDt = LocalDate.now().plusDays(1).format(DateTimeFormatter.ISO_LOCAL_DATE);
 

@@ -111,6 +111,12 @@ public class EbicsService {
 
             upload.setData(dataFile);
             Result result = upload.send();
+
+            if (!result.isSuccess()) {
+                throw new RuntimeException("EBICS upload failed: technical="
+                        + result.getTechnicalReturnCode()
+                        + ", bank=" + result.getBankReturnCode());
+            }
             log.info("EBICS upload successful");
         }
     }

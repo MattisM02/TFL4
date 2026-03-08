@@ -21,6 +21,7 @@ Eine verstaendliche Erklaerung des Benchmark-Frameworks, auch ohne Programmierke
 13. [Statistik: Wie verlaesslich sind die Ergebnisse?](#13-statistik-wie-verlaesslich-sind-die-ergebnisse)
 14. [Wie liest man die Ergebnisse?](#14-wie-liest-man-die-ergebnisse)
 15. [Was kann man mit den Ergebnissen anfangen?](#15-was-kann-man-mit-den-ergebnissen-anfangen)
+16. [GraalVM Native Image: Welche Probleme mussten geloest werden?](#16-graalvm-native-image-welche-probleme-mussten-geloest-werden)
 
 ---
 
@@ -820,3 +821,97 @@ Die Ergebnisse liefern **messbare Belege** fuer Empfehlungen zur Container-Konfi
 Die GC-Log-Auswertung liefert zusaetzliche Einblicke: "Der GC-Overhead von Serial GC betraegt 8.2%, waehrend ZGC nur 0.3% erreicht -- bei allerdings 15% hoeherem CPU-Verbrauch."
 
 Das Konfidenzintervall macht die Aussagen belastbar: "Der Unterschied in der Startup-Zeit zwischen CDS und Standard ist statistisch signifikant (95%-KI: 1.2s +/- 0.15s vs. 5.0s +/- 0.3s)."
+
+---
+
+## 16. GraalVM Native Image: Welche Probleme mussten geloest werden?
+
+In Abschnitt 4 und beim Profil P05 wurde bereits erklaert, **was** GraalVM Native Image ist: Das gesamte Programm wird vor dem Start in Maschinencode uebersetzt -- wie ein Buch, das komplett uebersetzt wird, bevor man es vorliest. Die Vorteile: extrem schneller Start, weniger Speicherverbrauch.
+
+Was dort nicht erklaert wurde: Die Umwandlung unserer Banking-Anwendung in ein Native Image war eines der technisch anspruchsvollsten Probleme des gesamten Projekts. Drei voneinander unabhaengige Probleme mussten geloest werden, bevor der EBICS-Banking-Endpunkt im Native Image funktionierte.
+
+### 16.1 Das Grundproblem: Alles muss vorher bekannt sein
+
+Bei einer normalen JVM kann das Programm zur Laufzeit sagen: "Ich brauche jetzt die Klasse `CryptoHelper` -- bitte lade sie." Das ist wie ein Koch, der waehrend des Kochens zum Regal geht und eine Zutat holt, die er gerade braucht.
+
+Bei einem Native Image geht das **nicht**. Alles, was das Programm jemals brauchen koennte, muss **vor** dem Uebersetzen bekannt sein. Das ist wie ein Koch, der in einen Raum gesperrt wird: Alles, was auf der Arbeitsplatte steht, kann er verwenden. Aber er kann nicht mehr zum Regal gehen. Wenn eine Zutat fehlt, schlaegt das Rezept fehl.
+
+Unsere EBICS-Banking-Anwendung nutzt intensiv Techniken, die Klassen erst zur Laufzeit laden:
+- **Kryptographie** (Verschluesselung, digitale Signaturen): Der Algorithmus wird per Name angefordert ("Gib mir den Verschluesseler namens PBES2")
+- **XML-Verarbeitung** (EBICS-Nachrichten sind XML): Schema-Dateien werden dynamisch geladen
+- **Reflection** (ein Programm schaut sich selbst an): Der EBICS-Kernel laedt Hunderte von Klassen ueber ihren Namen
+
+Fuer all das mussten wir dem Native-Image-Builder vorher mitteilen, welche Klassen benoetigt werden. Die dafuer noetige Konfiguration stammt aus drei Quellen:
+1. **Spring AOT:** Spring Boot erkennt automatisch seine eigenen Klassen (Controller, Services etc.)
+2. **Tracing Agent:** Ein spezielles Werkzeug, das die Anwendung einmal normal startet, dabei aufzeichnet, welche Klassen geladen werden, und eine Liste erstellt
+3. **Eigene Build-Zeit-Logik:** Eine speziell geschriebene Klasse (`IaikSecurityFeature`), die waehrend des Uebersetzens zusaetzliche Registrierungen vornimmt
+
+Doch selbst mit einer vollstaendigen Liste aller Klassen gab es drei Probleme, die spezielle Loesungen erforderten.
+
+### 16.2 Problem 1: Der Sicherheitsausweis wird nicht akzeptiert
+
+**Worum geht es?**
+
+Java hat ein eingebautes Sicherheitssystem fuer Verschluesselung. Jeder Kryptographie-Anbieter (in unserem Fall die Bibliothek "IAIK") muss einen "Sicherheitsausweis" vorweisen -- ein digitales Zertifikat, das von einer vertrauenswuerdigen Stelle ausgestellt wurde. Java prueft diesen Ausweis beim ersten Verwendungsversuch.
+
+**Was ging schief?**
+
+Die IAIK-Bibliothek hat **keinen** Ausweis, der von Javas eingebauter Vertrauensstelle akzeptiert wird. Bei einer normalen JVM ist das kein Problem -- dort wird die Pruefung einfach uebersprungen. Aber beim Native Image wird das Ergebnis der Pruefung **waehrend des Uebersetzens** in das fertige Programm "eingebrannt". Und das eingebrannte Ergebnis lautete: "Pruefung fehlgeschlagen."
+
+Jedes Mal, wenn das fertige Programm spaeter versuchte, etwas zu verschluesseln, fand es die eingebrannte Fehlermeldung und verweigerte die Arbeit.
+
+**Analogie:** Man stelle sich ein Hotel vor, in dem jeder Gast beim Einchecken seinen Ausweis zeigen muss. IAIK zeigt seinen Ausweis, aber die Rezeption erkennt ihn nicht an -- "Diese Behoerde kennen wir nicht." In einem normalen Hotel (JVM) wuerde der Manager sagen: "Lassen Sie ihn trotzdem rein." Aber beim Native Image wird die Ablehnung in Stein gemeisselt: Am Eingang steht fuer immer "Zutritt verweigert fuer IAIK."
+
+**Die Loesung:** Wir haben ein spezielles Programmstueck geschrieben, das **waehrend des Uebersetzens** ausgefuehrt wird. Es oeffnet den internen Karteikasten der Sicherheitspruefung, findet den Eintrag "IAIK: abgelehnt" und ersetzt ihn durch "IAIK: zugelassen". Wenn das Ergebnis dann in das fertige Programm eingebrannt wird, steht dort: "IAIK ist vertrauenswuerdig." Problem geloest.
+
+### 16.3 Problem 2: Der Werkzeugkasten wird ausgeraeumt
+
+**Worum geht es?**
+
+Die IAIK-Bibliothek stellt 408 verschiedene kryptographische Werkzeuge bereit: Verschiedene Verschluesselungsverfahren, Hash-Algorithmen, digitale Signaturen und vieles mehr. Man kann sich das vorstellen wie einen riesigen Werkzeugkasten mit 408 Fachern -- Schraubenzieher, Zangen, Saegen, Bohrer in allen Groessen und Varianten.
+
+**Was ging schief?**
+
+GraalVM ist sehr aggressiv beim "Aufraeumen": Alles, was waehrend des Uebersetzens nicht benutzt wird, wird aus dem fertigen Programm entfernt. Das Ziel ist ein kleines, schlankes Programm. Das Problem: Waehrend des Uebersetzens laeuft kein Anwendungscode. Niemand ruft `Cipher.getInstance("PBES2")` auf. Also entschied GraalVM: "PBES2 wird nie gebraucht -- weg damit."
+
+Genau dieses PBES2-Verfahren wird aber spaeter gebraucht, um die Schluesseldateien fuer die Bankverbindung zu oeffnen. Das Ergebnis: "Algorithm PBES2 not available" -- die Banking-Funktion war defekt.
+
+**Analogie:** Man bereitet sich auf einen Umzug vor und ein eifriger Helfer raumt den Werkzeugkasten aus: "Schraubenzieher Groesse 3 habe ich dich noch nie benutzen sehen -- brauchen wir nicht!" Am neuen Ort stellt man fest, dass genau diese Groesse fuer die Kueche gebraucht wird. Aber der Schraubenzieher liegt im Muell, 100 Kilometer entfernt.
+
+**Die Loesung:** Unser spezielles Build-Zeit-Programm nimmt waehrend des Uebersetzens **jedes einzelne der 408 Werkzeuge** einmal in die Hand. Es ruft fuer jedes Werkzeug die offizielle Java-Schnittstelle auf: `Cipher.getInstance("PBES2")`, `Mac.getInstance("HmacSHA256")`, und so weiter fuer alle 408. Dadurch sieht GraalVM: "Oh, dieses Werkzeug wird benutzt -- das muss bleiben." Am Ende bleiben 407 von 408 Werkzeugen erhalten. (Eines -- `SecureRandom` -- wird absichtlich uebersprungen, weil es ein anderes Problem verursachen wuerde, siehe naechster Abschnitt.)
+
+### 16.4 Randbedingung: Keine Zufallszahlen einfrieren
+
+Eines der 408 Werkzeuge (`SecureRandom`) konnte nicht wie die anderen behandelt werden. Der Grund: Dieser Zufallszahlengenerator speichert intern einen "Startwert" (Seed). Wenn dieser Startwert in das fertige Programm eingebrannt wuerde, wuerde **jeder Start** die gleiche Folge von "Zufalls"-Zahlen erzeugen. Fuer eine Banking-Anwendung waere das eine Sicherheitskatastrophe -- die Verschluesselung waere vorhersagbar.
+
+**Analogie:** Es waere so, als wuerde man den Wuerfel vor dem Spiel immer auf die gleiche Seite drehen. Egal wie oft man spielt -- die Ergebnisse waeren immer identisch. Genau das wuerde ein eingefrorener Zufallszahlen-Generator bewirken.
+
+**Die Loesung:** Wir weisen GraalVM an: "Alle IAIK-Klassen sollen beim Uebersetzen initialisiert werden -- **ausser** die Zufallszahlen-Klassen. Die sollen erst beim Programmstart frisch initialisiert werden." So bekommt jeder Start seinen eigenen, frischen Zufallswert.
+
+### 16.5 Problem 3: Der Postbote versteht die neue Adresse nicht
+
+**Worum geht es?**
+
+Unser Programm muss EBICS-XML-Nachrichten gegen Schema-Dateien (XSD) validieren -- also pruefen, ob eine XML-Nachricht das richtige Format hat. Die Schema-Dateien sind im Programm eingebettet, und das XML-Validierungssystem muss sie finden und laden.
+
+**Was ging schief?**
+
+In einer normalen JVM liefert Java beim Suchen nach eingebetteten Dateien eine "Adresse" wie `jar:file:/app/app.jar!/schemas/ebics.xsd`. Das XML-System (Xerces) versteht diese Adresse und kann die Datei laden.
+
+Im Native Image gibt es aber keine JAR-Datei mehr -- die Dateien sind direkt im Programm eingebettet. Die Adresse sieht dann so aus: `resource:/schemas/ebics.xsd`. Und genau hier scheitert das XML-System: Es kennt den Adress-Typ `resource:` nicht und kann die Datei nicht laden.
+
+Das Ergebnis: Keine Schema-Validierung moeglich, die EBICS-Nachrichten koennen nicht geprueft werden, die Banking-Funktion bricht mit einem Fehler ab.
+
+**Analogie:** Man stelle sich einen Postboten vor, der Pakete nur an Adressen mit "Strasse + Hausnummer" liefert. Nun zieht man in ein neues Gebaeude um, das statt einer Strassenadresse nur einen GPS-Code als Adresse hat: "GPS:48.1234,11.5678". Der Postboten-Dienst (Xerces) versteht GPS-Codes nicht -- er kann das Paket nicht zustellen, obwohl das Gebaeude existiert.
+
+**Die Loesung:** Wir haben eine eigene "Poststation" (`NativeSchemaFactory`) gebaut, die zwischen dem alten und dem neuen Adresssystem uebersetzt. Wenn das XML-System nach einer Datei fragt und eine `resource:`-Adresse bekommt, faengt unsere Poststation die Anfrage ab, liest die Datei selbst (ueber einen anderen Weg, der das `resource:`-Format versteht) und reicht den Inhalt an das XML-System weiter. Das XML-System merkt keinen Unterschied -- es bekommt die gewuenschte Datei, nur eben ueber einen Umweg.
+
+### 16.6 Das Ergebnis
+
+Nachdem alle drei Probleme geloest waren, funktioniert die gesamte Banking-Funktion im Native Image genau wie bei einer normalen JVM:
+- Schluesseldateien werden entschluesselt (PBES2-Kryptographie)
+- Die sichere Verbindung zum Banking-Server wird aufgebaut (TLS)
+- Schluessel werden ausgetauscht (HPB-Protokoll)
+- Eine SEPA-Ueberweisung wird hochgeladen und bestaetigt
+
+Das fertige Programm ist ca. 122 MB gross, startet in wenigen Millisekunden statt mehreren Sekunden, und verbraucht deutlich weniger Speicher als die JVM-Variante. Ob es auch einen Vorteil beim Durchsatz und bei den Antwortzeiten bringt, wird der Benchmark zeigen.

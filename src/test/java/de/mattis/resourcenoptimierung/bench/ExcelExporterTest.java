@@ -25,7 +25,7 @@ class ExcelExporterTest {
     // ======================== Helpers ========================
 
     private RunResult createSampleResult(String name) {
-        return new RunResult(
+        return RunResult.of(
                 name,
                 "img:jvm",
                 1200L,
@@ -52,7 +52,7 @@ class ExcelExporterTest {
     }
 
     private RunResult createMinimalResult(String name) {
-        return new RunResult(
+        return RunResult.of(
                 name,
                 "img:jvm",
                 500L,
@@ -92,6 +92,67 @@ class ExcelExporterTest {
         Files.writeString(file, header + "\n" + dataRow + "\n", StandardCharsets.UTF_8);
     }
 
+    private RunResult createResultWithGcSummary(String name) {
+        GcSummary gc = GcSummary.fromEvents(
+                List.of(
+                        new GcEvent(0.5, "Young", "G1 Evacuation Pause", 24576, 8192, 262144, 3.45),
+                        new GcEvent(1.2, "Young", "G1 Evacuation Pause", 30720, 10240, 262144, 2.10),
+                        new GcEvent(3.0, "Full", "System.gc()", 200000, 50000, 262144, 120.5)
+                ),
+                5.0,
+                type -> type.toLowerCase().contains("full")
+        );
+        return RunResult.of(
+                name, "img:jvm", 1200L, 0.25,
+                List.of(0.010, 0.012, 0.015, 0.011, 0.020, 0.013, 0.014, 0.016, 0.018, 0.022),
+                1.5, 66.67,
+                "-Xlog:gc*:stdout",
+                ReadinessCheckUsed.ACTUATOR_READINESS, null,
+                BenchmarkScenario.PAYLOAD_HEAVY_JSON, 200000, "/json?n=200000",
+                MeasurementProfile.defaults(),
+                List.of(DockerStatSample.parse("0.12%|151.9MiB / 768MiB|19.78%|4.9kB / 2.93kB|40.9MB / 0B|29")),
+                List.of(DockerStatSample.parse("45.5%|280MiB / 768MiB|36.46%|10kB / 5kB|50MB / 1MB|35")),
+                List.of(DockerStatSample.parse("2.1%|200MiB / 768MiB|26.04%|12kB / 6kB|55MB / 2MB|30")),
+                1, gc, null, null, null
+        );
+    }
+
+    // ======================== writeExcel with GcSummary ========================
+
+    @Test
+    void writeExcel_withGcSummary_gcVerhaltenHasData() throws IOException {
+        Path xlsx = tempDir.resolve("test-gc.xlsx");
+        ExcelExporter.writeExcel(List.of(
+                createResultWithGcSummary("baseline"),
+                createResultWithGcSummary("tuned")
+        ), xlsx);
+
+        try (InputStream is = Files.newInputStream(xlsx);
+             XSSFWorkbook wb = new XSSFWorkbook(is)) {
+            XSSFSheet gcSheet = wb.getSheet("GC-Verhalten");
+            assertNotNull(gcSheet);
+            assertEquals(2, gcSheet.getLastRowNum()); // header + 2 data rows
+            // Col 0=Config (string), col 1=JVM-Flags (string), col 2=GC-Pausen count (numeric)
+            assertTrue(gcSheet.getRow(1).getCell(2).getNumericCellValue() > 0,
+                    "GC count should be > 0 when GcSummary is provided");
+        }
+    }
+
+    @Test
+    void writeExcel_withGcSummary_gcTimelineHasEvents() throws IOException {
+        Path xlsx = tempDir.resolve("test-gc-timeline.xlsx");
+        ExcelExporter.writeExcel(List.of(createResultWithGcSummary("baseline")), xlsx);
+
+        try (InputStream is = Files.newInputStream(xlsx);
+             XSSFWorkbook wb = new XSSFWorkbook(is)) {
+            XSSFSheet timeline = wb.getSheet("GC-Timeline");
+            assertNotNull(timeline);
+            // Header + 3 GC events = 3 data rows
+            assertTrue(timeline.getLastRowNum() >= 3,
+                    "GC-Timeline should have rows for each GC event");
+        }
+    }
+
     // ======================== writeExcel ========================
 
     @Test
@@ -104,7 +165,7 @@ class ExcelExporterTest {
     }
 
     @Test
-    void writeExcel_containsFiveSheets() throws IOException {
+    void writeExcel_containsSevenSheets() throws IOException {
         Path xlsx = tempDir.resolve("test.xlsx");
         ExcelExporter.writeExcel(List.of(
                 createSampleResult("baseline"),
@@ -197,7 +258,7 @@ class ExcelExporterTest {
 
     @Test
     void writeExcel_nullDockerSamples_handledGracefully() throws IOException {
-        RunResult result = new RunResult(
+        RunResult result = RunResult.of(
                 "native", "img:native", 200, 0.05, List.of(0.003), 0.3, 333.0,
                 null, null, null,
                 BenchmarkScenario.PAYLOAD_HEAVY_JSON, 100, "/json?n=100",
@@ -697,7 +758,7 @@ class ExcelExporterTest {
     // ======================== Runtime Color-Coding (end-to-end) ========================
 
     private RunResult createResultWithImage(String name, String dockerImage) {
-        return new RunResult(
+        return RunResult.of(
                 name,
                 dockerImage,
                 1200L,

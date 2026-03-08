@@ -2,6 +2,8 @@ package de.mattis.resourcenoptimierung.bench;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -176,5 +178,75 @@ class BenchStatsTest {
     @Test
     void tValue_negative_returnsNaN() {
         assertTrue(Double.isNaN(BenchStats.tValue(-1)));
+    }
+
+    // ======================== percentile ========================
+
+    @Test
+    void percentile_p50_oddSize() {
+        // sorted: [1, 2, 3, 4, 5] -> p50 index = ceil(0.5*5)-1 = 2 -> value = 3
+        assertEquals(3.0, BenchStats.percentile(List.of(1.0, 2.0, 3.0, 4.0, 5.0), 0.50), EPS);
+    }
+
+    @Test
+    void percentile_p95_tenElements() {
+        // sorted: [1..10] -> ceil(0.95*10)-1 = 9 -> value = 10
+        assertEquals(10.0, BenchStats.percentile(
+                List.of(1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0), 0.95), EPS);
+    }
+
+    @Test
+    void percentile_p99_tenElements() {
+        // ceil(0.99*10)-1 = 9 -> value = 10
+        assertEquals(10.0, BenchStats.percentile(
+                List.of(1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0), 0.99), EPS);
+    }
+
+    @Test
+    void percentile_singleElement() {
+        // Any percentile of a single-element list returns that element
+        assertEquals(42.0, BenchStats.percentile(List.of(42.0), 0.50), EPS);
+        assertEquals(42.0, BenchStats.percentile(List.of(42.0), 0.95), EPS);
+        assertEquals(42.0, BenchStats.percentile(List.of(42.0), 0.99), EPS);
+    }
+
+    @Test
+    void percentile_nullList_returnsNaN() {
+        assertTrue(Double.isNaN(BenchStats.percentile(null, 0.50)));
+    }
+
+    @Test
+    void percentile_emptyList_returnsNaN() {
+        assertTrue(Double.isNaN(BenchStats.percentile(List.of(), 0.50)));
+    }
+
+    @Test
+    void percentile_p0_returnsFirst() {
+        // ceil(0*5)-1 = -1 -> clamped to 0 -> first element
+        assertEquals(1.0, BenchStats.percentile(List.of(1.0, 2.0, 3.0, 4.0, 5.0), 0.0), EPS);
+    }
+
+    @Test
+    void percentile_p100_returnsLast() {
+        // ceil(1.0*5)-1 = 4 -> last element
+        assertEquals(5.0, BenchStats.percentile(List.of(1.0, 2.0, 3.0, 4.0, 5.0), 1.0), EPS);
+    }
+
+    @Test
+    void percentile_twoElements_p50() {
+        // ceil(0.5*2)-1 = 0 -> first element
+        assertEquals(10.0, BenchStats.percentile(List.of(10.0, 20.0), 0.50), EPS);
+    }
+
+    // ======================== mean with NaN values ========================
+
+    @Test
+    void mean_withNanValues_ignoresNaN() {
+        assertEquals(5.0, BenchStats.mean(new double[]{5.0, Double.NaN, 5.0}), EPS);
+    }
+
+    @Test
+    void mean_allNaN_returnsNaN() {
+        assertTrue(Double.isNaN(BenchStats.mean(new double[]{Double.NaN, Double.NaN})));
     }
 }

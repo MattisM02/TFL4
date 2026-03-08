@@ -53,6 +53,9 @@ import java.util.List;
  */
 public class BenchCli {
 
+    /** Standard-Anzahl Wiederholungen pro Konfiguration, wenn weder --smoke noch --quick gesetzt. */
+    private static final int DEFAULT_REPETITIONS = 3;
+
     /**
      * Startet den Benchmark-Durchlauf.
      *
@@ -65,8 +68,8 @@ public class BenchCli {
     public static void main(String[] args) throws Exception {
         // Standalone: --merge-excel erzeugt ein Excel aus allen vorhandenen CSVs
         if (hasFlag(args, "--merge-excel")) {
-            Path outDir = Path.of("bench-results");
-            Path excelOut = outDir.resolve("benchmark-vergleich.xlsx");
+            Path outDir = Path.of(BenchDefaults.OUTPUT_DIR);
+            Path excelOut = outDir.resolve(BenchDefaults.EXCEL_FILENAME);
             ExcelExporter.mergeFromCsvDirectory(outDir, excelOut);
             return;
         }
@@ -75,7 +78,7 @@ public class BenchCli {
         int workloadN = resolveWorkloadN(args, scenario);
         MeasurementProfile profile = resolveProfile(args);
         BenchmarkPlan plan = resolvePlan(args, scenario);
-        int defaultReps = (hasFlag(args, "--smoke") || hasFlag(args, "--quick")) ? 1 : 3;
+        int defaultReps = (hasFlag(args, "--smoke") || hasFlag(args, "--quick")) ? 1 : DEFAULT_REPETITIONS;
         int repetitions = resolveIntArg(args, "--repetitions", defaultReps);
 
         boolean rebuild = hasFlag(args, "--rebuild");
@@ -97,7 +100,7 @@ public class BenchCli {
 
         // EBICS: TravicLink-Bankserver automatisch starten (sofern nicht --skipTravicLink)
         TravicLinkManager travicLink = null;
-        if (TravicLinkManager.isEbicsScenario(scenario) && !hasFlag(args, "--skipTravicLink")) {
+        if (scenario.isEbics() && !hasFlag(args, "--skipTravicLink")) {
             travicLink = new TravicLinkManager();
             travicLink.start();
         }
@@ -108,7 +111,7 @@ public class BenchCli {
             // Inkrementelle CSV-Sicherung: nach jedem erfolgreichen Run wird das Ergebnis
             // sofort an eine Partial-CSV angehaengt, damit Teilergebnisse bei spaeteren
             // Fehlern (OOM-Kill, Verbindungsabbruch, etc.) nicht verloren gehen.
-            Path outDir = Path.of("bench-results");
+            Path outDir = Path.of(BenchDefaults.OUTPUT_DIR);
             Files.createDirectories(outDir);
             String stamp = DateTimeFormatter.ISO_INSTANT.format(Instant.now()).replace(":", "-");
             Path partialCsv = outDir.resolve("results-" + stamp + "-partial.csv");
@@ -128,7 +131,7 @@ public class BenchCli {
             ExcelExporter.writeExcel(results, outDir.resolve("results-" + stamp + ".xlsx"));
 
             // Automatisch das Vergleichs-Excel aktualisieren (alle CSVs zusammen)
-            ExcelExporter.mergeFromCsvDirectory(outDir, outDir.resolve("benchmark-vergleich.xlsx"));
+            ExcelExporter.mergeFromCsvDirectory(outDir, outDir.resolve(BenchDefaults.EXCEL_FILENAME));
 
             // Partial-CSV aufraemen — die vollstaendige CSV existiert jetzt
             try {
@@ -182,8 +185,8 @@ public class BenchCli {
      * @return Benchmark-Plan
      */
     static BenchmarkPlan resolvePlan(String[] args, BenchmarkScenario scenario) {
-        boolean ebics = TravicLinkManager.isEbicsScenario(scenario);
-        String defaultImage = ebics ? "tfl4-ek-bench:jvm-ek" : "tfl4-ek-bench:jvm";
+        boolean ebics = scenario.isEbics();
+        String defaultImage = ebics ? BenchDefaults.IMAGE_JVM_EK : BenchDefaults.IMAGE_JVM;
 
         String jvmArgsRaw = findArgValue(args, "--jvmArgs");
         if (jvmArgsRaw == null) {
@@ -283,16 +286,16 @@ public class BenchCli {
      */
     static int resolveWorkloadN(String[] args, BenchmarkScenario scenario) {
         String raw = findArgValue(args, "--n");
-        if (raw != null) return Integer.parseInt(raw);
+        if (raw != null) {
+            try {
+                return Integer.parseInt(raw);
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException("Invalid integer for --n: " + raw, e);
+            }
+        }
 
         boolean smoke = hasFlag(args, "--smoke");
-
-        // Defaults pro Scenario (--smoke reduziert EBICS-Workload)
-        return switch (scenario) {
-            case PAYLOAD_HEAVY_JSON -> 200_000;
-            case ALLOC_HEAVY_OK -> 10_000_000;
-            case EBICS_UPLOAD -> smoke ? 3 : 10;
-        };
+        return smoke ? scenario.smokeN() : scenario.defaultN();
     }
 
     /**
@@ -339,7 +342,11 @@ public class BenchCli {
     static int resolveIntArg(String[] args, String key, int defaultValue) {
         String raw = findArgValue(args, key);
         if (raw == null) return defaultValue;
-        return Integer.parseInt(raw);
+        try {
+            return Integer.parseInt(raw);
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("Invalid integer for " + key + ": " + raw, e);
+        }
     }
 
     /**
@@ -353,7 +360,11 @@ public class BenchCli {
     static long resolveLongArg(String[] args, String key, long defaultValue) {
         String raw = findArgValue(args, key);
         if (raw == null) return defaultValue;
-        return Long.parseLong(raw);
+        try {
+            return Long.parseLong(raw);
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("Invalid long for " + key + ": " + raw, e);
+        }
     }
 
     /**

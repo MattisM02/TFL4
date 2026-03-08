@@ -356,6 +356,55 @@
                 <surefire.groups>docker</surefire.groups>
             </properties>
         </profile>
+
+        <!-- GraalVM Native Image: mvn -Pnative spring-boot:process-aot package
+             Erzeugt AOT-Hints fuer Spring-Klassen. Fuer die EBICS-Kernel-JARs
+             (IAIK Crypto, JAXB, Netty) werden zusaetzlich Tracing-Agent-Configs
+             unter META-INF/native-image/ benoetigt. -->
+        <profile>
+            <id>native</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.graalvm.buildtools</groupId>
+                        <artifactId>native-maven-plugin</artifactId>
+                        <version>0.10.6</version>
+                        <configuration>
+                            <skipNativeBuild>true</skipNativeBuild>
+                        </configuration>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.springframework.boot</groupId>
+                        <artifactId>spring-boot-maven-plugin</artifactId>
+                        <configuration>
+                            <includeSystemScope>true</includeSystemScope>
+                            <excludes>
+                                <exclude>
+                                    <groupId>de.travic</groupId>
+                                    <artifactId>log4j-slf4j-impl</artifactId>
+                                </exclude>
+                                <exclude>
+                                    <groupId>de.travic</groupId>
+                                    <artifactId>slf4j-api</artifactId>
+                                </exclude>
+                                <exclude>
+                                    <groupId>de.travic</groupId>
+                                    <artifactId>log4j-jcl</artifactId>
+                                </exclude>
+                            </excludes>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <id>process-aot</id>
+                                <goals>
+                                    <goal>process-aot</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
     </profiles>
 
 </project>

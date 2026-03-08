@@ -52,10 +52,11 @@ public final class ExcelExporter {
     private static final byte[] CLR_RED         = rgb(0xE7, 0x4C, 0x3C);
     private static final byte[] CLR_DARK_BLUE   = rgb(0x2C, 0x3E, 0x50);
 
-    // Laufzeittyp-Farben fuer Multi-Runtime-Diagramme
-    private static final byte[] CLR_RT_HOTSPOT  = rgb(0x2B, 0x57, 0x9A);  // blau
-    private static final byte[] CLR_RT_OPENJ9   = rgb(0x16, 0xA0, 0x85);  // tuerkis/teal
-    private static final byte[] CLR_RT_NATIVE   = rgb(0xE6, 0x7E, 0x22);  // orange
+    /**
+     * Index der Throughput-Spalte in AGG_METRICS.
+     * Throughput ist die einzige "hoeher = besser" Metrik; alle anderen sind "niedriger = besser".
+     */
+    private static final int THROUGHPUT_INDEX = 6;
 
     private static byte[] rgb(int r, int g, int b) {
         return new byte[]{(byte) r, (byte) g, (byte) b};
@@ -75,19 +76,7 @@ public final class ExcelExporter {
         return RuntimeType.HOTSPOT;
     }
 
-    /** Gibt die Diagrammfarbe fuer einen Laufzeittyp zurueck. */
-    private static byte[] runtimeColor(RuntimeType rt) {
-        return switch (rt) {
-            case OPENJ9 -> CLR_RT_OPENJ9;
-            case NATIVE -> CLR_RT_NATIVE;
-            default     -> CLR_RT_HOTSPOT;
-        };
-    }
-
     // ───────────────────── Chart-Serien-Definition ─────────────────────
-
-    /** Beschreibt eine Datenreihe innerhalb eines Balkendiagramms. */
-    private record ChartSeries(String title, int column, byte[] color) {}
 
     /** Beschreibt eine Chart-Serie mit zugehoerigem CI-Spaltenindex fuer Error Bars. */
     private record ChartSeriesCI(String title, int column, int ciColumn, byte[] color) {}
@@ -259,8 +248,8 @@ public final class ExcelExporter {
 
             List<Double> lats = sorted(r.latenciesSeconds());
             double mean = lats.stream().mapToDouble(Double::doubleValue).average().orElse(Double.NaN);
-            DockerPhaseAvg load = phaseAvg(r.dockerLoadSamples());
-            DockerPhaseAvg idle = phaseAvg(r.dockerIdleSamples());
+            BenchStats.DockerPhaseAvg load = BenchStats.dockerPhaseAvg(r.dockerLoadSamples());
+            BenchStats.DockerPhaseAvg idle = BenchStats.dockerPhaseAvg(r.dockerIdleSamples());
             MeasurementProfile p = r.measurementProfile();
 
             int c = 0;
@@ -274,19 +263,19 @@ public final class ExcelExporter {
             setNum(row, c++, r.readinessMs(),          pick(s, i, SK.INT));
             setNum(row, c++, r.firstSeconds(),         pick(s, i, SK.DEC4));
 
-            setNum(row, c++, percentile(lats, 0.50),   pick(s, i, SK.DEC4));
-            setNum(row, c++, percentile(lats, 0.95),   pick(s, i, SK.DEC4));
-            setNum(row, c++, percentile(lats, 0.99),   pick(s, i, SK.DEC4));
+            setNum(row, c++, BenchStats.percentile(lats, 0.50),   pick(s, i, SK.DEC4));
+            setNum(row, c++, BenchStats.percentile(lats, 0.95),   pick(s, i, SK.DEC4));
+            setNum(row, c++, BenchStats.percentile(lats, 0.99),   pick(s, i, SK.DEC4));
             setNum(row, c++, mean,                     pick(s, i, SK.DEC4));
             setNum(row, c++, lats.size(),              pick(s, i, SK.INT));
 
             setNum(row, c++, r.totalMeasureTimeSeconds() / 60.0, pick(s, i, SK.DEC2));
             setNum(row, c++, r.throughputReqPerSec(),     pick(s, i, SK.DEC2));
 
-            setNum(row, c++, dval(load, a -> a.cpuAvg), pick(s, i, SK.PCT));
-            setNum(row, c++, dval(load, a -> a.memAvg), pick(s, i, SK.PCT));
-            setNum(row, c++, dval(load, a -> a.memMax), pick(s, i, SK.PCT));
-            setNum(row, c++, dval(idle, a -> a.memAvg), pick(s, i, SK.PCT));
+            setNum(row, c++, BenchStats.dval(load, a -> a.cpuAvg()), pick(s, i, SK.PCT));
+            setNum(row, c++, BenchStats.dval(load, a -> a.memAvg()), pick(s, i, SK.PCT));
+            setNum(row, c++, BenchStats.dval(load, a -> a.memMax()), pick(s, i, SK.PCT));
+            setNum(row, c++, BenchStats.dval(idle, a -> a.memAvg()), pick(s, i, SK.PCT));
 
             // GC-Verhalten
             GcSummary gc = r.gcSummary();
@@ -350,9 +339,9 @@ public final class ExcelExporter {
         for (var entry : groups.entrySet()) {
             List<RunResult> group = entry.getValue();
             // Latenz-Aggregate: fuer jede Rep die percentile berechnen, dann mean/CI ueber Reps
-            double[] p50s = group.stream().mapToDouble(r -> percentile(sorted(r.latenciesSeconds()), 0.50)).toArray();
-            double[] p95s = group.stream().mapToDouble(r -> percentile(sorted(r.latenciesSeconds()), 0.95)).toArray();
-            double[] p99s = group.stream().mapToDouble(r -> percentile(sorted(r.latenciesSeconds()), 0.99)).toArray();
+            double[] p50s = group.stream().mapToDouble(r -> BenchStats.percentile(sorted(r.latenciesSeconds()), 0.50)).toArray();
+            double[] p95s = group.stream().mapToDouble(r -> BenchStats.percentile(sorted(r.latenciesSeconds()), 0.95)).toArray();
+            double[] p99s = group.stream().mapToDouble(r -> BenchStats.percentile(sorted(r.latenciesSeconds()), 0.99)).toArray();
             double[] means = group.stream().mapToDouble(r -> sorted(r.latenciesSeconds()).stream().mapToDouble(Double::doubleValue).average().orElse(Double.NaN)).toArray();
 
             XSSFRow row = sheet.createRow(i + 1);
@@ -379,7 +368,7 @@ public final class ExcelExporter {
                     .map(g -> inferRuntimeType(g.get(0).dockerImage()))
                     .toList();
             addBarChartWithCI(sheet, dataRows, "Latenz-Vergleich (s)",
-                    "Konfiguration", "Latenz (s)", 0, 0, true, runtimes,
+                    "Konfiguration", "Latenz (s)", 0, 0, true, false, runtimes,
                     new ChartSeriesCI("p50", 2, 6, CLR_GREEN),
                     new ChartSeriesCI("p95", 3, 7, CLR_ORANGE),
                     new ChartSeriesCI("p99", 4, 8, CLR_RED));
@@ -433,12 +422,12 @@ public final class ExcelExporter {
                     .map(g -> inferRuntimeType(g.get(0).dockerImage()))
                     .toList();
             addBarChartWithCI(sheet, dataRows, "Startup-Zeit (ms)",
-                    "Konfiguration", "Readiness (ms)", 0, 0, false, runtimes,
+                    "Konfiguration", "Readiness (ms)", 0, 0, false, false, runtimes,
                     new ChartSeriesCI("Readiness (ms)", 2, 5, CLR_DARK_BLUE));
 
             int chartHeight = Math.max(12, dataRows * 2);
             addBarChartWithCI(sheet, dataRows, "Durchsatz (req/s)",
-                    "Konfiguration", "Throughput (req/s)", 0, chartHeight + 4, false, runtimes,
+                    "Konfiguration", "Throughput (req/s)", 0, chartHeight + 4, false, false, runtimes,
                     new ChartSeriesCI("Throughput (req/s)", 4, 7, CLR_GREEN));
         }
         sheet.setAutoFilter(new CellRangeAddress(0, dataRows, 0, visibleCols.length - 1));
@@ -479,13 +468,13 @@ public final class ExcelExporter {
             setCell(row, 1, normalizeFlags(group.get(0).effectiveJavaToolOptions()),  pick(s, i, SK.TEXT));
 
             // Berechne pro RunResult die Phase-Averages, dann mean/CI ueber Reps
-            double[] cpuIdle = group.stream().mapToDouble(r -> dval(phaseAvg(r.dockerIdleSamples()), a -> a.cpuAvg)).toArray();
-            double[] cpuLoad = group.stream().mapToDouble(r -> dval(phaseAvg(r.dockerLoadSamples()), a -> a.cpuAvg)).toArray();
-            double[] cpuPost = group.stream().mapToDouble(r -> dval(phaseAvg(r.dockerPostSamples()), a -> a.cpuAvg)).toArray();
-            double[] memIdle = group.stream().mapToDouble(r -> dval(phaseAvg(r.dockerIdleSamples()), a -> a.memAvg)).toArray();
-            double[] memLoad = group.stream().mapToDouble(r -> dval(phaseAvg(r.dockerLoadSamples()), a -> a.memAvg)).toArray();
-            double[] memPost = group.stream().mapToDouble(r -> dval(phaseAvg(r.dockerPostSamples()), a -> a.memAvg)).toArray();
-            double[] memMax  = group.stream().mapToDouble(r -> dval(phaseAvg(r.dockerLoadSamples()), a -> a.memMax)).toArray();
+            double[] cpuIdle = group.stream().mapToDouble(r -> BenchStats.dval(BenchStats.dockerPhaseAvg(r.dockerIdleSamples()), a -> a.cpuAvg())).toArray();
+            double[] cpuLoad = group.stream().mapToDouble(r -> BenchStats.dval(BenchStats.dockerPhaseAvg(r.dockerLoadSamples()), a -> a.cpuAvg())).toArray();
+            double[] cpuPost = group.stream().mapToDouble(r -> BenchStats.dval(BenchStats.dockerPhaseAvg(r.dockerPostSamples()), a -> a.cpuAvg())).toArray();
+            double[] memIdle = group.stream().mapToDouble(r -> BenchStats.dval(BenchStats.dockerPhaseAvg(r.dockerIdleSamples()), a -> a.memAvg())).toArray();
+            double[] memLoad = group.stream().mapToDouble(r -> BenchStats.dval(BenchStats.dockerPhaseAvg(r.dockerLoadSamples()), a -> a.memAvg())).toArray();
+            double[] memPost = group.stream().mapToDouble(r -> BenchStats.dval(BenchStats.dockerPhaseAvg(r.dockerPostSamples()), a -> a.memAvg())).toArray();
+            double[] memMax  = group.stream().mapToDouble(r -> BenchStats.dval(BenchStats.dockerPhaseAvg(r.dockerLoadSamples()), a -> a.memMax())).toArray();
 
             setNum(row, 2, BenchStats.mean(cpuIdle), pick(s, i, SK.PCT));
             setNum(row, 3, BenchStats.mean(cpuLoad), pick(s, i, SK.PCT));
@@ -514,7 +503,7 @@ public final class ExcelExporter {
                     .map(g -> inferRuntimeType(g.get(0).dockerImage()))
                     .toList();
             addBarChartWithCI(sheet, dataRows, "Ressourcenverbrauch unter Last (LOAD)",
-                    "Konfiguration", "%", 0, 0, true, runtimes,
+                    "Konfiguration", "%", 0, 0, true, false, runtimes,
                     new ChartSeriesCI("CPU% LOAD", 3, 10, CLR_ORANGE),
                     new ChartSeriesCI("Mem% LOAD", 6, 13, CLR_DARK_BLUE));
             addColorScale(sheet, 1, dataRows, 2, 8);
@@ -625,15 +614,15 @@ public final class ExcelExporter {
                     .map(g -> inferRuntimeType(g.get(0).dockerImage()))
                     .toList();
             // Chart 1: GC-Pausen-Vergleich (Total Pause + Max Pause) – logarithmische Y-Achse
-            addBarChartLogYWithCI(sheet, dataRows, "GC-Pausen-Vergleich (logarithmisch)",
-                    "Konfiguration", "Pause (s)", 0, 0, runtimes,
+            addBarChartWithCI(sheet, dataRows, "GC-Pausen-Vergleich (logarithmisch)",
+                    "Konfiguration", "Pause (s)", 0, 0, true, true, runtimes,
                     new ChartSeriesCI("Pause Gesamt (s)", 4, 10, CLR_DARK_BLUE),
                     new ChartSeriesCI("Max Pause (s)", 5, 11, CLR_RED));
 
             // Chart 2: GC Overhead (%) – unterhalb des ersten Charts
             int chartHeight = Math.max(12, dataRows * 2);
             addBarChartWithCI(sheet, dataRows, "GC Overhead (%)",
-                    "Konfiguration", "Overhead (%)", 0, chartHeight + 4, false, runtimes,
+                    "Konfiguration", "Overhead (%)", 0, chartHeight + 4, false, false, runtimes,
                     new ChartSeriesCI("Overhead (%)", 6, 12, CLR_ORANGE));
         }
         sheet.setAutoFilter(new CellRangeAddress(0, dataRows, 0, visibleCols.length - 1));
@@ -865,7 +854,7 @@ public final class ExcelExporter {
                     .map(g -> inferRuntimeType(g.get(0).dockerImage()))
                     .toList();
             addBarChartWithCI(sheet, dataRows, "Latenz-Vergleich alle Runs (s)",
-                    "Konfiguration", "Latenz (s)", 0, 0, true, runtimes,
+                    "Konfiguration", "Latenz (s)", 0, 0, true, false, runtimes,
                     new ChartSeriesCI("p50", 2, 5, CLR_GREEN),
                     new ChartSeriesCI("p95", 3, 6, CLR_ORANGE),
                     new ChartSeriesCI("p99", 4, 7, CLR_RED));
@@ -914,7 +903,7 @@ public final class ExcelExporter {
                     .map(g -> inferRuntimeType(g.get(0).dockerImage()))
                     .toList();
             addBarChartWithCI(sheet, dataRows, "Startup & Throughput alle Runs",
-                    "Konfiguration", null, 0, 0, true, runtimes,
+                    "Konfiguration", null, 0, 0, true, false, runtimes,
                     new ChartSeriesCI("Readiness (ms)", 2, 5, CLR_DARK_BLUE),
                     new ChartSeriesCI("Throughput (req/s)", 4, 7, CLR_GREEN));
         }
@@ -993,7 +982,7 @@ public final class ExcelExporter {
                     .map(g -> inferRuntimeType(g.get(0).dockerImage()))
                     .toList();
             addBarChartWithCI(sheet, dataRows, "Ressourcen & GC alle Runs",
-                    "Konfiguration", null, 0, 0, true, runtimes,
+                    "Konfiguration", null, 0, 0, true, false, runtimes,
                     new ChartSeriesCI("CPU% LOAD", 2, 11, CLR_ORANGE),
                     new ChartSeriesCI("Mem% LOAD", 3, 12, CLR_DARK_BLUE),
                     new ChartSeriesCI("Overhead (%)", 9, 18, CLR_RED));
@@ -1093,7 +1082,12 @@ public final class ExcelExporter {
         if (rowIdx >= 2) {
             for (int m = 0; m < AGG_METRICS.length; m++) {
                 int meanCol = 2 + m * 3;
-                addColorScale(sheet, 1, rowIdx, meanCol, meanCol);
+                boolean lowerIsBetter = m != THROUGHPUT_INDEX; // Throughput: hoeher = besser
+                if (lowerIsBetter) {
+                    addColorScale(sheet, 1, rowIdx, meanCol, meanCol);
+                } else {
+                    addColorScaleReverse(sheet, 1, rowIdx, meanCol, meanCol);
+                }
             }
         }
 
@@ -1168,7 +1162,7 @@ public final class ExcelExporter {
         if (rowIdx >= 2) {
             for (int m = 0; m < AGG_METRICS.length; m++) {
                 int relCol = 2 + m * 2 + 1;
-                boolean lowerIsBetter = m != 6; // Throughput (index 6): hoeher = besser
+                boolean lowerIsBetter = m != THROUGHPUT_INDEX; // Throughput: hoeher = besser
                 if (lowerIsBetter) {
                     addColorScale(sheet, 1, rowIdx, relCol, relCol);
                 } else {
@@ -1414,170 +1408,12 @@ public final class ExcelExporter {
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    //  Diagramm-Helfer (eliminiert fuenffache Duplikation)
+    //  Diagramm-Helfer
     // ═══════════════════════════════════════════════════════════════════
 
     /**
-     * Erzeugt ein gruppiertes Balkendiagramm unterhalb der Datentabelle.
-     * Chart wird ab {@code dataRows + 3} platziert (Standard-Offset 0).
-     * Legende wird nur angezeigt, wenn mehr als eine Serie vorhanden ist.
-     */
-    private static void addBarChart(XSSFSheet sheet, int dataRows,
-                                    String title, String catLabel, String valLabel,
-                                    int catCol, ChartSeries... series) {
-        addBarChart(sheet, dataRows, title, catLabel, valLabel, catCol, 0, series.length > 1, series);
-    }
-
-    /**
-     * Erzeugt ein gruppiertes Balkendiagramm mit konfigurierbarem vertikalen Offset.
-     * Legende wird nur angezeigt, wenn mehr als eine Serie vorhanden ist.
-     */
-    private static void addBarChart(XSSFSheet sheet, int dataRows,
-                                    String title, String catLabel, String valLabel,
-                                    int catCol, int extraOffset, ChartSeries... series) {
-        addBarChart(sheet, dataRows, title, catLabel, valLabel, catCol, extraOffset, series.length > 1, series);
-    }
-
-    /**
-     * Erzeugt ein gruppiertes Balkendiagramm mit konfigurierbarem vertikalen Offset
-     * und optionaler Legende.
-     */
-    private static void addBarChart(XSSFSheet sheet, int dataRows,
-                                    String title, String catLabel, String valLabel,
-                                    int catCol, boolean showLegend, ChartSeries... series) {
-        addBarChart(sheet, dataRows, title, catLabel, valLabel, catCol, 0, showLegend, series);
-    }
-
-    /**
-     * Erzeugt ein gruppiertes Balkendiagramm mit konfigurierbarem vertikalen Offset
-     * und optionaler Legende.
-     *
-     * @param sheet       Ziel-Sheet
-     * @param dataRows    Anzahl Datenzeilen (ohne Header)
-     * @param title       Diagramm-Titel
-     * @param catLabel    Achsenbeschriftung Kategorie (oder null)
-     * @param valLabel    Achsenbeschriftung Wert (oder null)
-     * @param catCol      Spalte mit Kategorie-Labels (Config-Namen)
-     * @param extraOffset Zusaetzlicher vertikaler Offset (Zeilen) unter der Standard-Position
-     * @param showLegend  Legende anzeigen (false bei Einzelserien)
-     * @param series      Datenreihen (Titel, Spalte, Farbe)
-     */
-    private static void addBarChart(XSSFSheet sheet, int dataRows,
-                                    String title, String catLabel, String valLabel,
-                                    int catCol, int extraOffset, boolean showLegend,
-                                    ChartSeries... series) {
-        int chartHeight = Math.max(12, dataRows * 2);
-        int startRow = dataRows + 3 + extraOffset;
-
-        XSSFDrawing drawing = sheet.createDrawingPatriarch();
-        XSSFClientAnchor anchor = drawing.createAnchor(
-                0, 0, 0, 0, 0, startRow, 10, startRow + chartHeight);
-
-        XSSFChart chart = drawing.createChart(anchor);
-        chart.setTitleText(title);
-        chart.setTitleOverlay(false);
-
-        XDDFChartAxis catAxis = chart.createCategoryAxis(AxisPosition.BOTTOM);
-        if (catLabel != null) catAxis.setTitle(catLabel);
-
-        XDDFValueAxis valAxis = chart.createValueAxis(AxisPosition.LEFT);
-        if (valLabel != null) valAxis.setTitle(valLabel);
-        valAxis.setCrossBetween(AxisCrossBetween.BETWEEN);
-
-        XDDFDataSource<String> cats = XDDFDataSourcesFactory.fromStringCellRange(
-                sheet, new CellRangeAddress(1, dataRows, catCol, catCol));
-
-        XDDFBarChartData barData = (XDDFBarChartData)
-                chart.createData(ChartTypes.BAR, catAxis, valAxis);
-        barData.setBarDirection(BarDirection.COL);
-        if (series.length > 1) barData.setBarGrouping(BarGrouping.CLUSTERED);
-        barData.setGapWidth(150);
-
-        for (ChartSeries sd : series) {
-            XDDFNumericalDataSource<Double> data = XDDFDataSourcesFactory.fromNumericCellRange(
-                    sheet, new CellRangeAddress(1, dataRows, sd.column(), sd.column()));
-            XDDFBarChartData.Series bs = (XDDFBarChartData.Series) barData.addSeries(cats, data);
-            bs.setTitle(sd.title(), null);
-            bs.setFillProperties(new XDDFSolidFillProperties(XDDFColor.from(sd.color())));
-        }
-
-        chart.plot(barData);
-
-        // Legende nur anzeigen, wenn explizit gewuenscht (bei Mehrfachserien)
-        if (showLegend) {
-            XDDFChartLegend legend = chart.getOrAddLegend();
-            legend.setPosition(LegendPosition.BOTTOM);
-        }
-    }
-
-    /**
-     * Erzeugt ein gruppiertes Balkendiagramm mit logarithmischer Y-Achse (Basis 10).
-     * Ideal fuer Wertebereiche mit extremen Unterschieden (z.B. GC-Pausen: 0.001s bis 2s).
-     */
-    private static void addBarChartLogY(XSSFSheet sheet, int dataRows,
-                                        String title, String catLabel, String valLabel,
-                                        int catCol, int extraOffset,
-                                        ChartSeries... series) {
-        int chartHeight = Math.max(12, dataRows * 2);
-        int startRow = dataRows + 3 + extraOffset;
-
-        XSSFDrawing drawing = sheet.createDrawingPatriarch();
-        XSSFClientAnchor anchor = drawing.createAnchor(
-                0, 0, 0, 0, 0, startRow, 10, startRow + chartHeight);
-
-        XSSFChart chart = drawing.createChart(anchor);
-        chart.setTitleText(title);
-        chart.setTitleOverlay(false);
-
-        XDDFChartAxis catAxis = chart.createCategoryAxis(AxisPosition.BOTTOM);
-        if (catLabel != null) catAxis.setTitle(catLabel);
-
-        XDDFValueAxis valAxis = chart.createValueAxis(AxisPosition.LEFT);
-        if (valLabel != null) valAxis.setTitle(valLabel);
-        valAxis.setCrossBetween(AxisCrossBetween.BETWEEN);
-
-        // Logarithmische Skala (Basis 10) fuer extreme Wertbereiche
-        CTPlotArea plotArea = chart.getCTChart().getPlotArea();
-        CTValAx ctValAx = plotArea.getValAxList().get(plotArea.getValAxList().size() - 1);
-        if (!ctValAx.getScaling().isSetLogBase()) ctValAx.getScaling().addNewLogBase();
-        ctValAx.getScaling().getLogBase().setVal(10.0);
-
-        // Fix: Kategorie-Achse kreuzt am Minimum statt bei 1.0 (10^0),
-        // damit alle Balken nach oben wachsen
-        CTCatAx ctCatAx = plotArea.getCatAxList().get(plotArea.getCatAxList().size() - 1);
-        if (ctCatAx.isSetCrosses()) ctCatAx.unsetCrosses();
-        ctCatAx.addNewCrosses().setVal(STCrosses.MIN);
-
-        XDDFDataSource<String> cats = XDDFDataSourcesFactory.fromStringCellRange(
-                sheet, new CellRangeAddress(1, dataRows, catCol, catCol));
-
-        XDDFBarChartData barData = (XDDFBarChartData)
-                chart.createData(ChartTypes.BAR, catAxis, valAxis);
-        barData.setBarDirection(BarDirection.COL);
-        if (series.length > 1) barData.setBarGrouping(BarGrouping.CLUSTERED);
-        barData.setGapWidth(150);
-
-        for (ChartSeries sd : series) {
-            XDDFNumericalDataSource<Double> data = XDDFDataSourcesFactory.fromNumericCellRange(
-                    sheet, new CellRangeAddress(1, dataRows, sd.column(), sd.column()));
-            XDDFBarChartData.Series bs = (XDDFBarChartData.Series) barData.addSeries(cats, data);
-            bs.setTitle(sd.title(), null);
-            bs.setFillProperties(new XDDFSolidFillProperties(XDDFColor.from(sd.color())));
-        }
-
-        chart.plot(barData);
-
-        if (series.length > 1) {
-            XDDFChartLegend legend = chart.getOrAddLegend();
-            legend.setPosition(LegendPosition.BOTTOM);
-        }
-    }
-
-    /**
      * Erzeugt ein gruppiertes Balkendiagramm mit 95%-CI-Fehlerbalken.
-     *
-     * <p>Jede {@link ChartSeriesCI} referenziert sowohl die Mittelwert-Spalte als auch
-     * die CI-Halbbreiten-Spalte. Die Fehlerbalken werden symmetrisch (±CI) dargestellt.
+     * Convenience-Overload: lineare Y-Achse, keine Runtime-Einfaerbung.
      *
      * @param sheet       Ziel-Sheet
      * @param dataRows    Anzahl Datenzeilen (ohne Header)
@@ -1594,18 +1430,32 @@ public final class ExcelExporter {
                                           int catCol, int extraOffset, boolean showLegend,
                                           ChartSeriesCI... series) {
         addBarChartWithCI(sheet, dataRows, title, catLabel, valLabel,
-                catCol, extraOffset, showLegend, null, series);
+                catCol, extraOffset, showLegend, false, null, series);
     }
 
     /**
-     * Erzeugt ein gruppiertes Balkendiagramm mit 95%-CI-Fehlerbalken und optionaler Runtime-Einfaerbung.
+     * Erzeugt ein gruppiertes Balkendiagramm mit 95%-CI-Fehlerbalken,
+     * optionaler logarithmischer Y-Achse und optionaler Runtime-Einfaerbung.
      *
-     * <p>Wenn {@code runtimes} mehr als einen Typ enthaelt, werden die Balken nach RuntimeType eingefaerbt.
+     * <p>Jede {@link ChartSeriesCI} referenziert sowohl die Mittelwert-Spalte als auch
+     * die CI-Halbbreiten-Spalte. Die Fehlerbalken werden symmetrisch (±CI) dargestellt.
+     *
+     * @param sheet       Ziel-Sheet
+     * @param dataRows    Anzahl Datenzeilen (ohne Header)
+     * @param title       Diagramm-Titel
+     * @param catLabel    Achsenbeschriftung Kategorie (oder null)
+     * @param valLabel    Achsenbeschriftung Wert (oder null)
+     * @param catCol      Spalte mit Kategorie-Labels (Config-Namen)
+     * @param extraOffset zusaetzlicher vertikaler Offset (fuer mehrere Charts)
+     * @param showLegend  true = Legende anzeigen
+     * @param logY        true = logarithmische Y-Achse (Basis 10), ideal fuer extreme Wertbereiche
+     * @param runtimes    optionale RuntimeType-Liste (null = keine Einfaerbung, reserviert)
+     * @param series      Datenreihen mit CI-Spaltenreferenz
      */
     private static void addBarChartWithCI(XSSFSheet sheet, int dataRows,
                                           String title, String catLabel, String valLabel,
                                           int catCol, int extraOffset, boolean showLegend,
-                                          List<RuntimeType> runtimes,
+                                          boolean logY, List<RuntimeType> runtimes,
                                           ChartSeriesCI... series) {
         int chartHeight = Math.max(12, dataRows * 2);
         int startRow = dataRows + 3 + extraOffset;
@@ -1624,6 +1474,19 @@ public final class ExcelExporter {
         XDDFValueAxis valAxis = chart.createValueAxis(AxisPosition.LEFT);
         if (valLabel != null) valAxis.setTitle(valLabel);
         valAxis.setCrossBetween(AxisCrossBetween.BETWEEN);
+
+        // Logarithmische Skala (Basis 10) fuer extreme Wertbereiche (z.B. GC-Pausen)
+        CTPlotArea plotArea = chart.getCTChart().getPlotArea();
+        if (logY) {
+            CTValAx ctValAx = plotArea.getValAxList().get(plotArea.getValAxList().size() - 1);
+            if (!ctValAx.getScaling().isSetLogBase()) ctValAx.getScaling().addNewLogBase();
+            ctValAx.getScaling().getLogBase().setVal(10.0);
+
+            // Kategorie-Achse kreuzt am Minimum, damit alle Balken nach oben wachsen
+            CTCatAx ctCatAx = plotArea.getCatAxList().get(plotArea.getCatAxList().size() - 1);
+            if (ctCatAx.isSetCrosses()) ctCatAx.unsetCrosses();
+            ctCatAx.addNewCrosses().setVal(STCrosses.MIN);
+        }
 
         XDDFDataSource<String> cats = XDDFDataSourcesFactory.fromStringCellRange(
                 sheet, new CellRangeAddress(1, dataRows, catCol, catCol));
@@ -1645,7 +1508,6 @@ public final class ExcelExporter {
         chart.plot(barData);
 
         // Error Bars via CT-API: eine CTErrBars pro Serie
-        CTPlotArea plotArea = chart.getCTChart().getPlotArea();
         CTBarChart ctBar = plotArea.getBarChartList().get(plotArea.getBarChartList().size() - 1);
         for (int i = 0; i < series.length; i++) {
             ChartSeriesCI sd = series[i];
@@ -1655,88 +1517,6 @@ public final class ExcelExporter {
         }
 
         if (showLegend) {
-            XDDFChartLegend legend = chart.getOrAddLegend();
-            legend.setPosition(LegendPosition.BOTTOM);
-        }
-    }
-
-    /**
-     * Erzeugt ein Balkendiagramm mit logarithmischer Y-Achse und 95%-CI-Fehlerbalken.
-     */
-    private static void addBarChartLogYWithCI(XSSFSheet sheet, int dataRows,
-                                              String title, String catLabel, String valLabel,
-                                              int catCol, int extraOffset,
-                                              ChartSeriesCI... series) {
-        addBarChartLogYWithCI(sheet, dataRows, title, catLabel, valLabel,
-                catCol, extraOffset, null, series);
-    }
-
-    /**
-     * Erzeugt ein Balkendiagramm mit logarithmischer Y-Achse, CI-Fehlerbalken und optionaler Runtime-Einfaerbung.
-     */
-    private static void addBarChartLogYWithCI(XSSFSheet sheet, int dataRows,
-                                              String title, String catLabel, String valLabel,
-                                              int catCol, int extraOffset,
-                                              List<RuntimeType> runtimes,
-                                              ChartSeriesCI... series) {
-        int chartHeight = Math.max(12, dataRows * 2);
-        int startRow = dataRows + 3 + extraOffset;
-
-        XSSFDrawing drawing = sheet.createDrawingPatriarch();
-        XSSFClientAnchor anchor = drawing.createAnchor(
-                0, 0, 0, 0, 0, startRow, 10, startRow + chartHeight);
-
-        XSSFChart chart = drawing.createChart(anchor);
-        chart.setTitleText(title);
-        chart.setTitleOverlay(false);
-
-        XDDFChartAxis catAxis = chart.createCategoryAxis(AxisPosition.BOTTOM);
-        if (catLabel != null) catAxis.setTitle(catLabel);
-
-        XDDFValueAxis valAxis = chart.createValueAxis(AxisPosition.LEFT);
-        if (valLabel != null) valAxis.setTitle(valLabel);
-        valAxis.setCrossBetween(AxisCrossBetween.BETWEEN);
-
-        // Logarithmische Skala
-        CTPlotArea plotArea = chart.getCTChart().getPlotArea();
-        CTValAx ctValAx = plotArea.getValAxList().get(plotArea.getValAxList().size() - 1);
-        if (!ctValAx.getScaling().isSetLogBase()) ctValAx.getScaling().addNewLogBase();
-        ctValAx.getScaling().getLogBase().setVal(10.0);
-
-        // Kategorie-Achse kreuzt am Minimum
-        CTCatAx ctCatAx = plotArea.getCatAxList().get(plotArea.getCatAxList().size() - 1);
-        if (ctCatAx.isSetCrosses()) ctCatAx.unsetCrosses();
-        ctCatAx.addNewCrosses().setVal(STCrosses.MIN);
-
-        XDDFDataSource<String> cats = XDDFDataSourcesFactory.fromStringCellRange(
-                sheet, new CellRangeAddress(1, dataRows, catCol, catCol));
-
-        XDDFBarChartData barData = (XDDFBarChartData)
-                chart.createData(ChartTypes.BAR, catAxis, valAxis);
-        barData.setBarDirection(BarDirection.COL);
-        if (series.length > 1) barData.setBarGrouping(BarGrouping.CLUSTERED);
-        barData.setGapWidth(150);
-
-        for (ChartSeriesCI sd : series) {
-            XDDFNumericalDataSource<Double> data = XDDFDataSourcesFactory.fromNumericCellRange(
-                    sheet, new CellRangeAddress(1, dataRows, sd.column(), sd.column()));
-            XDDFBarChartData.Series bs = (XDDFBarChartData.Series) barData.addSeries(cats, data);
-            bs.setTitle(sd.title(), null);
-            bs.setFillProperties(new XDDFSolidFillProperties(XDDFColor.from(sd.color())));
-        }
-
-        chart.plot(barData);
-
-        // Error Bars
-        CTBarChart ctBar = plotArea.getBarChartList().get(plotArea.getBarChartList().size() - 1);
-        for (int i = 0; i < series.length; i++) {
-            ChartSeriesCI sd = series[i];
-            if (sd.ciColumn() < 0) continue;
-            CTBarSer ctSer = ctBar.getSerList().get(i);
-            addCTErrorBars(ctSer.addNewErrBars(), sheet, dataRows, sd.ciColumn());
-        }
-
-        if (series.length > 1) {
             XDDFChartLegend legend = chart.getOrAddLegend();
             legend.setPosition(LegendPosition.BOTTOM);
         }
@@ -1765,34 +1545,6 @@ public final class ExcelExporter {
         CTNumDataSource minus = errBars.addNewMinus();
         CTNumRef minusRef = minus.addNewNumRef();
         minusRef.setF(formula);
-    }
-
-    /**
-     * Faerbt die Balken eines Diagramms nach Laufzeittyp (HotSpot=blau, OpenJ9=tuerkis, Native=orange),
-     * sofern mehr als ein Laufzeittyp in den Daten vorkommt.
-     *
-     * <p>Setzt fuer jeden Datenpunkt (CTDPt) einen eigenen Solid-Fill auf Basis des RuntimeType.
-     * Wenn nur ein RuntimeType vorhanden ist, wird nichts geaendert (die Serien-Farbe bleibt).
-     *
-     * @param ctBar    das CTBarChart, dessen Serien eingefaerbt werden
-     * @param runtimes Laufzeittyp pro Datenzeile (Index 0 = erste Datenzeile)
-     */
-    private static void applyRuntimeColors(CTBarChart ctBar, List<RuntimeType> runtimes) {
-        if (runtimes == null || runtimes.isEmpty()) return;
-        long distinct = runtimes.stream().distinct().count();
-        if (distinct <= 1) return; // nur ein Typ → keine Einfaerbung noetig
-
-        for (CTBarSer ctSer : ctBar.getSerList()) {
-            for (int pt = 0; pt < runtimes.size(); pt++) {
-                CTDPt dPt = ctSer.addNewDPt();
-                dPt.addNewIdx().setVal(pt);
-                byte[] color = runtimeColor(runtimes.get(pt));
-                CTShapeProperties spPr = dPt.addNewSpPr();
-                CTSolidColorFillProperties fill = spPr.addNewSolidFill();
-                CTSRgbColor srgb = fill.addNewSrgbClr();
-                srgb.setVal(color);
-            }
-        }
     }
 
     /** Wandelt einen 0-basierten Spaltenindex in einen Excel-Spaltenbuchstaben um (A, B, ..., Z, AA, ...). */
@@ -1938,40 +1690,11 @@ public final class ExcelExporter {
         return flags;
     }
 
-    private static double percentile(List<Double> sorted, double p) {
-        if (sorted == null || sorted.isEmpty()) return Double.NaN;
-        int idx = (int) Math.ceil(p * sorted.size()) - 1;
-        return sorted.get(Math.max(0, Math.min(idx, sorted.size() - 1)));
-    }
-
     /** Kopiert und sortiert eine Latenzliste. */
     private static List<Double> sorted(List<Double> lats) {
         List<Double> copy = new ArrayList<>(lats);
         copy.sort(Double::compareTo);
         return copy;
-    }
-
-    // ───────────────────── Docker-Statistik Aggregation ─────────────────────
-
-    private record DockerPhaseAvg(double cpuAvg, double memAvg, double memMax) {}
-
-    @FunctionalInterface
-    private interface PhaseField { double get(DockerPhaseAvg a); }
-
-    /** Gibt den Feldwert zurueck oder NaN wenn die Phase null ist. */
-    private static double dval(DockerPhaseAvg phase, PhaseField fn) {
-        return phase != null ? fn.get(phase) : Double.NaN;
-    }
-
-    private static DockerPhaseAvg phaseAvg(List<DockerStatSample> samples) {
-        if (samples == null || samples.isEmpty()) return null;
-        double cpuSum = 0, memSum = 0, memMax = -1;
-        for (DockerStatSample ss : samples) {
-            cpuSum += ss.cpuPercent();
-            memSum += ss.memPercent();
-            if (ss.memPercent() > memMax) memMax = ss.memPercent();
-        }
-        return new DockerPhaseAvg(cpuSum / samples.size(), memSum / samples.size(), memMax);
     }
 
     // ───────────────────── CSV-Zeilen-Parser ─────────────────────

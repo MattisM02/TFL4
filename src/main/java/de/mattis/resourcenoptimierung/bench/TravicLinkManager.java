@@ -1,13 +1,10 @@
 package de.mattis.resourcenoptimierung.bench;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.net.Socket;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Steuert den Lebenszyklus des TravicLink-EBICS-Servers fuer Benchmark-Runs.
@@ -47,10 +44,11 @@ public class TravicLinkManager {
     /**
      * Erstellt einen TravicLinkManager mit Standard-Konfiguration.
      * Compose-Datei: bench-docker/docker-compose.yml
-     * Host: localhost, Port: 7070, Timeout: 120s
+     * Host: localhost, Port: {@link BenchDefaults#TRAVICLINK_PORT}, Timeout: 120s
      */
     public TravicLinkManager() {
-        this(Path.of("bench-docker", "docker-compose.yml"), "localhost", 7070, Duration.ofSeconds(120));
+        this(Path.of("bench-docker", "docker-compose.yml"), "localhost",
+                BenchDefaults.TRAVICLINK_PORT, BenchDefaults.READINESS_TIMEOUT);
     }
 
     /**
@@ -91,17 +89,17 @@ public class TravicLinkManager {
 
         System.out.println("Starting TravicLink EBICS server (docker-compose up) ...");
 
-        ExecResult res = exec(List.of(
+        ProcessRunner.ExecResult res = exec(List.of(
                 "docker", "compose",
                 "-f", composeFile.toString(),
                 "up", "-d"
         ), Duration.ofMinutes(3));
 
-        if (res.exitCode != 0) {
+        if (res.exitCode() != 0) {
             throw new RuntimeException(
-                    "docker compose up failed (exit " + res.exitCode + ")\n"
-                            + "stderr: " + res.stderr + "\n"
-                            + "stdout: " + res.stdout
+                    "docker compose up failed (exit " + res.exitCode() + ")\n"
+                            + "stderr: " + res.stderr() + "\n"
+                            + "stdout: " + res.stdout()
             );
         }
 
@@ -123,14 +121,14 @@ public class TravicLinkManager {
         }
         System.out.println("Stopping TravicLink EBICS server (docker-compose down) ...");
         try {
-            ExecResult res = exec(List.of(
+            ProcessRunner.ExecResult res = exec(List.of(
                     "docker", "compose",
                     "-f", composeFile.toString(),
                     "down"
             ), Duration.ofMinutes(2));
 
-            if (res.exitCode != 0) {
-                System.err.println("docker compose down returned exit " + res.exitCode + ": " + res.stderr);
+            if (res.exitCode() != 0) {
+                System.err.println("docker compose down returned exit " + res.exitCode() + ": " + res.stderr());
             } else {
                 System.out.println("TravicLink stopped.");
             }
@@ -187,44 +185,15 @@ public class TravicLinkManager {
         );
     }
 
-    /**
-     * Prueft, ob ein EBICS-Szenario vorliegt.
-     *
-     * @param scenario Benchmark-Szenario
-     * @return true wenn EBICS
-     */
-    public static boolean isEbicsScenario(BenchmarkScenario scenario) {
-        return scenario == BenchmarkScenario.EBICS_UPLOAD;
-    }
 
     // ==================== Process Utilities ====================
 
-    private static ExecResult exec(List<String> cmd, Duration timeout) throws IOException, InterruptedException {
-        ProcessBuilder pb = new ProcessBuilder(cmd);
-        pb.redirectErrorStream(false);
-        Process p = pb.start();
-
-        boolean ok = p.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS);
-        if (!ok) {
-            p.destroyForcibly();
-            throw new RuntimeException("Command timed out: " + String.join(" ", cmd));
-        }
-
-        String stdout = readAll(p.getInputStream());
-        String stderr = readAll(p.getErrorStream());
-        return new ExecResult(p.exitValue(), stdout, stderr);
+    /**
+     * Delegiert an {@link ProcessRunner#exec(List, Duration)}.
+     * Liest stdout/stderr parallel vor waitFor() — verhindert Pipe-Deadlocks.
+     */
+    private static ProcessRunner.ExecResult exec(List<String> cmd, Duration timeout)
+            throws IOException, InterruptedException {
+        return ProcessRunner.exec(cmd, timeout);
     }
-
-    private static String readAll(java.io.InputStream in) throws IOException {
-        try (BufferedReader br = new BufferedReader(new InputStreamReader(in))) {
-            StringBuilder sb = new StringBuilder();
-            String line;
-            while ((line = br.readLine()) != null) {
-                sb.append(line).append('\n');
-            }
-            return sb.toString();
-        }
-    }
-
-    private record ExecResult(int exitCode, String stdout, String stderr) {}
 }

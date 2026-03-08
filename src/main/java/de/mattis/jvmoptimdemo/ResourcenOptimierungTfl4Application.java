@@ -21,6 +21,14 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 public class ResourcenOptimierungTfl4Application {
 
     public static void main(String[] args) {
+        // GraalVM Native Image: Xerces kann resource:-URLs nicht intern oeffnen.
+        // NativeSchemaFactory wrapt die Standard-SchemaFactory und setzt einen
+        // LSResourceResolver, der resource:-URLs auf ClassLoader.getResourceAsStream()
+        // abbildet. Nur noetig im Native Image, schadet aber auch nicht auf JVM.
+        System.setProperty(
+                "javax.xml.validation.SchemaFactory:http://www.w3.org/2001/XMLSchema",
+                "de.mattis.jvmoptimdemo.NativeSchemaFactory");
+
         SpringApplication.run(ResourcenOptimierungTfl4Application.class, args);
     }
 

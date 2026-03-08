@@ -117,7 +117,7 @@ public class BenchmarkRunner {
      */
     public List<RunResult> runAll(Consumer<RunResult> onResult) throws Exception {
         List<RunResult> results = new ArrayList<>();
-        Random rng = new Random();
+        Random rng = new Random(42);
         int totalRuns = repetitions * plan.configs.size();
         int failures = 0;
 
@@ -134,7 +134,7 @@ public class BenchmarkRunner {
             for (BenchmarkConfig cfg : shuffled) {
                 try {
                     RunResult result = new SingleRun(cfg, scenario, n, profile,
-                            8080, java.time.Duration.ofSeconds(120), rep).execute();
+                            BenchDefaults.DEFAULT_HOST_PORT, BenchDefaults.READINESS_TIMEOUT, rep).execute();
                     results.add(result);
                     onResult.accept(result);
                 } catch (Exception e) {

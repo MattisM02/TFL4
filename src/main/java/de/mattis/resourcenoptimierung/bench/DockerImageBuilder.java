@@ -33,17 +33,17 @@ public class DockerImageBuilder {
      * Mapping von Docker-Image-Tag auf das zugehoerige Dockerfile.
      * Reihenfolge: erst non-EK, dann EK-Varianten.
      */
-    static final Map<String, String> IMAGE_DOCKERFILE_MAP = Map.of(
-            "tfl4-ek-bench:jvm",              "Dockerfile",
-            "tfl4-ek-bench:jvm-ek",           "Dockerfile.with-ek",
-            "tfl4-ek-bench:openj9",           "Dockerfile.openj9",
-            "tfl4-ek-bench:openj9-ek",        "Dockerfile.openj9.with-ek",
-            "tfl4-ek-bench:native",           "Dockerfile.native",
-            "tfl4-ek-bench:native-ek",        "Dockerfile.native.with-ek",
-            "tfl4-ek-bench:graalvm-jit",      "Dockerfile.graalvm-jit",
-            "tfl4-ek-bench:graalvm-jit-ek",   "Dockerfile.graalvm-jit.with-ek",
-            "tfl4-ek-bench:jvm-cds",          "Dockerfile.cds",
-            "tfl4-ek-bench:jvm-cds-ek",       "Dockerfile.cds.with-ek"
+    static final Map<String, String> IMAGE_DOCKERFILE_MAP = Map.ofEntries(
+            Map.entry("tfl4-ek-bench:jvm",              "Dockerfile"),
+            Map.entry("tfl4-ek-bench:jvm-ek",           "Dockerfile.with-ek"),
+            Map.entry("tfl4-ek-bench:openj9",           "Dockerfile.openj9"),
+            Map.entry("tfl4-ek-bench:openj9-ek",        "Dockerfile.openj9.with-ek"),
+            Map.entry("tfl4-ek-bench:native",           "Dockerfile.native"),
+            Map.entry("tfl4-ek-bench:native-ek",        "Dockerfile.native.with-ek"),
+            Map.entry("tfl4-ek-bench:graalvm-jit",      "Dockerfile.graalvm-jit"),
+            Map.entry("tfl4-ek-bench:graalvm-jit-ek",   "Dockerfile.graalvm-jit.with-ek"),
+            Map.entry("tfl4-ek-bench:jvm-cds",          "Dockerfile.cds"),
+            Map.entry("tfl4-ek-bench:jvm-cds-ek",       "Dockerfile.cds.with-ek")
     );
 
     /**
@@ -152,7 +152,10 @@ public class DockerImageBuilder {
                 return false;
             }
             return p.exitValue() == 0;
-        } catch (IOException | InterruptedException e) {
+        } catch (IOException e) {
+            return false;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
             return false;
         }
     }
@@ -193,8 +196,11 @@ public class DockerImageBuilder {
             }
 
             System.out.println("    OK: " + tag);
-        } catch (IOException | InterruptedException e) {
+        } catch (IOException e) {
             throw new RuntimeException("Docker build failed for " + tag + ": " + e.getMessage(), e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Docker build interrupted for " + tag + ": " + e.getMessage(), e);
         }
     }
 
@@ -241,8 +247,11 @@ public class DockerImageBuilder {
             }
 
             System.out.println("    OK: Maven package complete");
-        } catch (IOException | InterruptedException e) {
+        } catch (IOException e) {
             throw new RuntimeException("Maven package failed: " + e.getMessage(), e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Maven package interrupted: " + e.getMessage(), e);
         }
     }
 
