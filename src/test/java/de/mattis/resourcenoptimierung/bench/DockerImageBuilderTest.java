@@ -19,8 +19,8 @@ class DockerImageBuilderTest {
     // ==================== IMAGE_DOCKERFILE_MAP ====================
 
     @Test
-    void map_containsAllSixImages() {
-        assertEquals(6, DockerImageBuilder.IMAGE_DOCKERFILE_MAP.size());
+    void map_containsAllTenImages() {
+        assertEquals(10, DockerImageBuilder.IMAGE_DOCKERFILE_MAP.size());
     }
 
     @Test
@@ -54,6 +54,26 @@ class DockerImageBuilderTest {
     }
 
     @Test
+    void map_graalvmJit_mapsToDockerfileGraalvmJit() {
+        assertEquals("Dockerfile.graalvm-jit", DockerImageBuilder.IMAGE_DOCKERFILE_MAP.get("tfl4-ek-bench:graalvm-jit"));
+    }
+
+    @Test
+    void map_graalvmJitEk_mapsToDockerfileGraalvmJitWithEk() {
+        assertEquals("Dockerfile.graalvm-jit.with-ek", DockerImageBuilder.IMAGE_DOCKERFILE_MAP.get("tfl4-ek-bench:graalvm-jit-ek"));
+    }
+
+    @Test
+    void map_jvmCds_mapsToDockerfileCds() {
+        assertEquals("Dockerfile.cds", DockerImageBuilder.IMAGE_DOCKERFILE_MAP.get("tfl4-ek-bench:jvm-cds"));
+    }
+
+    @Test
+    void map_jvmCdsEk_mapsToDockerfileCdsWithEk() {
+        assertEquals("Dockerfile.cds.with-ek", DockerImageBuilder.IMAGE_DOCKERFILE_MAP.get("tfl4-ek-bench:jvm-cds-ek"));
+    }
+
+    @Test
     void map_unknownTag_returnsNull() {
         assertNull(DockerImageBuilder.IMAGE_DOCKERFILE_MAP.get("unknown:tag"));
     }
@@ -69,23 +89,27 @@ class DockerImageBuilderTest {
     }
 
     @Test
-    void collectTags_profilePlan_returnsThreeTags() {
+    void collectTags_profilePlan_returnsFiveTags() {
         BenchmarkPlan plan = BenchmarkPlan.profilePlan();
         Set<String> tags = DockerImageBuilder.collectUniqueImageTags(plan);
-        assertEquals(3, tags.size());
+        assertEquals(5, tags.size());
         assertTrue(tags.contains("tfl4-ek-bench:jvm"));
         assertTrue(tags.contains("tfl4-ek-bench:openj9"));
         assertTrue(tags.contains("tfl4-ek-bench:native"));
+        assertTrue(tags.contains("tfl4-ek-bench:jvm-cds"));
+        assertTrue(tags.contains("tfl4-ek-bench:graalvm-jit"));
     }
 
     @Test
-    void collectTags_profilePlan_ebics_returnsThreeEkTags() {
+    void collectTags_profilePlan_ebics_returnsFiveEkTags() {
         BenchmarkPlan plan = BenchmarkPlan.profilePlan().withEbicsImages();
         Set<String> tags = DockerImageBuilder.collectUniqueImageTags(plan);
-        assertEquals(3, tags.size());
+        assertEquals(5, tags.size());
         assertTrue(tags.contains("tfl4-ek-bench:jvm-ek"));
         assertTrue(tags.contains("tfl4-ek-bench:openj9-ek"));
         assertTrue(tags.contains("tfl4-ek-bench:native-ek"));
+        assertTrue(tags.contains("tfl4-ek-bench:jvm-cds-ek"));
+        assertTrue(tags.contains("tfl4-ek-bench:graalvm-jit-ek"));
     }
 
     @Test
@@ -141,7 +165,7 @@ class DockerImageBuilderTest {
         Set<String> baseTags = DockerImageBuilder.collectUniqueImageTags(base);
         Set<String> ebicsTags = DockerImageBuilder.collectUniqueImageTags(ebics);
 
-        // Zusammen muessen alle 6 Tags aus der Map abgedeckt sein
+        // Zusammen muessen alle 10 Tags aus der Map abgedeckt sein
         Set<String> allTags = new java.util.HashSet<>(baseTags);
         allTags.addAll(ebicsTags);
 

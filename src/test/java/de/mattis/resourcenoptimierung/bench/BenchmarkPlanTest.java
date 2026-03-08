@@ -276,19 +276,29 @@ class BenchmarkPlanTest {
     }
 
     @Test
-    void profilePlan_containsFiveProfiles() {
+    void profilePlan_containsTwelveProfiles() {
         BenchmarkPlan plan = BenchmarkPlan.profilePlan();
-        assertEquals(5, plan.configs.size(),
-                "Profile plan should contain 5 profiles (P01-P05)");
+        assertEquals(12, plan.configs.size(),
+                "Profile plan should contain 12 profiles (P01-P12)");
     }
 
     @Test
     void profilePlan_namesStartWithP() {
         BenchmarkPlan plan = BenchmarkPlan.profilePlan();
         for (BenchmarkConfig cfg : plan.configs) {
-            assertTrue(cfg.name().startsWith("P0"),
-                    "Profile name should start with 'P0', got: " + cfg.name());
+            assertTrue(cfg.name().matches("P\\d{2}-.*"),
+                    "Profile name should match 'Pxx-...', got: " + cfg.name());
         }
+    }
+
+    @Test
+    void profilePlan_allNamesUnique() {
+        BenchmarkPlan plan = BenchmarkPlan.profilePlan();
+        long distinctNames = plan.configs.stream()
+                .map(BenchmarkConfig::name)
+                .distinct()
+                .count();
+        assertEquals(plan.configs.size(), distinctNames, "All profile names must be unique");
     }
 
     @Test
@@ -334,6 +344,72 @@ class BenchmarkPlanTest {
         assertTrue(p05.jvmArgs().isEmpty());
     }
 
+    @Test
+    void profilePlan_p06Openj9Balanced() {
+        BenchmarkConfig cfg = findConfig(BenchmarkPlan.profilePlan(), "P06-openj9-balanced");
+        assertEquals(RuntimeType.OPENJ9, cfg.runtimeType());
+        assertEquals("tfl4-ek-bench:openj9", cfg.dockerImage());
+        assertTrue(cfg.jvmArgs().contains("-Xgcpolicy:balanced"));
+        assertTrue(cfg.jvmArgs().contains("-XX:MaxRAMPercentage=75"));
+    }
+
+    @Test
+    void profilePlan_p07Openj9Optthruput() {
+        BenchmarkConfig cfg = findConfig(BenchmarkPlan.profilePlan(), "P07-openj9-optthruput");
+        assertEquals(RuntimeType.OPENJ9, cfg.runtimeType());
+        assertTrue(cfg.jvmArgs().contains("-Xgcpolicy:optthruput"));
+    }
+
+    @Test
+    void profilePlan_p08Openj9Optavgpause() {
+        BenchmarkConfig cfg = findConfig(BenchmarkPlan.profilePlan(), "P08-openj9-optavgpause");
+        assertEquals(RuntimeType.OPENJ9, cfg.runtimeType());
+        assertTrue(cfg.jvmArgs().contains("-Xgcpolicy:optavgpause"));
+    }
+
+    @Test
+    void profilePlan_p09HotspotHeap256m() {
+        BenchmarkConfig cfg = findConfig(BenchmarkPlan.profilePlan(), "P09-hotspot-heap-256m");
+        assertEquals(RuntimeType.HOTSPOT, cfg.runtimeType());
+        assertTrue(cfg.jvmArgs().contains("-Xmx256m"));
+        assertTrue(cfg.jvmArgs().contains("-XX:+UseG1GC"));
+    }
+
+    @Test
+    void profilePlan_p10Openj9Heap256m() {
+        BenchmarkConfig cfg = findConfig(BenchmarkPlan.profilePlan(), "P10-openj9-heap-256m");
+        assertEquals(RuntimeType.OPENJ9, cfg.runtimeType());
+        assertTrue(cfg.jvmArgs().contains("-Xmx256m"));
+        // No MaxRAMPercentage — explicit heap overrides it
+        assertFalse(cfg.jvmArgs().contains("-XX:MaxRAMPercentage=75"));
+    }
+
+    @Test
+    void profilePlan_p11HotspotCds() {
+        BenchmarkConfig cfg = findConfig(BenchmarkPlan.profilePlan(), "P11-hotspot-cds");
+        assertEquals(RuntimeType.HOTSPOT, cfg.runtimeType());
+        assertEquals("tfl4-ek-bench:jvm-cds", cfg.dockerImage());
+        assertTrue(cfg.jvmArgs().contains("-XX:+UseG1GC"));
+        assertTrue(cfg.jvmArgs().contains("-XX:MaxRAMPercentage=75"));
+    }
+
+    @Test
+    void profilePlan_p12GraalvmJit() {
+        BenchmarkConfig cfg = findConfig(BenchmarkPlan.profilePlan(), "P12-graalvm-jit");
+        assertEquals(RuntimeType.HOTSPOT, cfg.runtimeType());
+        assertEquals("tfl4-ek-bench:graalvm-jit", cfg.dockerImage());
+        assertTrue(cfg.jvmArgs().contains("-XX:+UseG1GC"));
+        assertTrue(cfg.jvmArgs().contains("-XX:MaxRAMPercentage=75"));
+    }
+
+    @Test
+    void profilePlan_containsAllRuntimeTypes() {
+        BenchmarkPlan plan = BenchmarkPlan.profilePlan();
+        assertTrue(plan.configs.stream().anyMatch(c -> c.runtimeType() == RuntimeType.HOTSPOT));
+        assertTrue(plan.configs.stream().anyMatch(c -> c.runtimeType() == RuntimeType.OPENJ9));
+        assertTrue(plan.configs.stream().anyMatch(c -> c.runtimeType() == RuntimeType.NATIVE));
+    }
+
     // ==================== withEbicsImages ====================
 
     @Test
@@ -361,6 +437,22 @@ class BenchmarkPlanTest {
     }
 
     @Test
+    void withEbicsImages_mapsCdsToJvmCdsEk() {
+        BenchmarkPlan plan = BenchmarkPlan.profilePlan();
+        BenchmarkPlan ebics = plan.withEbicsImages();
+        BenchmarkConfig p11 = findConfig(ebics, "P11-hotspot-cds");
+        assertEquals("tfl4-ek-bench:jvm-cds-ek", p11.dockerImage());
+    }
+
+    @Test
+    void withEbicsImages_mapsGraalvmJitToGraalvmJitEk() {
+        BenchmarkPlan plan = BenchmarkPlan.profilePlan();
+        BenchmarkPlan ebics = plan.withEbicsImages();
+        BenchmarkConfig p12 = findConfig(ebics, "P12-graalvm-jit");
+        assertEquals("tfl4-ek-bench:graalvm-jit-ek", p12.dockerImage());
+    }
+
+    @Test
     void withEbicsImages_preservesRuntimeType() {
         BenchmarkPlan plan = BenchmarkPlan.profilePlan();
         BenchmarkPlan ebics = plan.withEbicsImages();
@@ -377,6 +469,93 @@ class BenchmarkPlanTest {
         for (int i = 0; i < plan.configs.size(); i++) {
             assertEquals(plan.configs.get(i).jvmArgs(), ebics.configs.get(i).jvmArgs(),
                     "JVM args should be preserved by withEbicsImages");
+        }
+    }
+
+    // ==================== toEbicsImage ====================
+
+    @Test
+    void toEbicsImage_appendsEkSuffix() {
+        assertEquals("tfl4-ek-bench:jvm-ek", BenchmarkPlan.toEbicsImage("tfl4-ek-bench:jvm"));
+    }
+
+    @Test
+    void toEbicsImage_openj9() {
+        assertEquals("tfl4-ek-bench:openj9-ek", BenchmarkPlan.toEbicsImage("tfl4-ek-bench:openj9"));
+    }
+
+    @Test
+    void toEbicsImage_native() {
+        assertEquals("tfl4-ek-bench:native-ek", BenchmarkPlan.toEbicsImage("tfl4-ek-bench:native"));
+    }
+
+    @Test
+    void toEbicsImage_graalvmJit() {
+        assertEquals("tfl4-ek-bench:graalvm-jit-ek", BenchmarkPlan.toEbicsImage("tfl4-ek-bench:graalvm-jit"));
+    }
+
+    @Test
+    void toEbicsImage_jvmCds() {
+        assertEquals("tfl4-ek-bench:jvm-cds-ek", BenchmarkPlan.toEbicsImage("tfl4-ek-bench:jvm-cds"));
+    }
+
+    @Test
+    void toEbicsImage_alreadyEk_unchanged() {
+        assertEquals("tfl4-ek-bench:jvm-ek", BenchmarkPlan.toEbicsImage("tfl4-ek-bench:jvm-ek"));
+    }
+
+    @Test
+    void toEbicsImage_alreadyEk_openj9() {
+        assertEquals("tfl4-ek-bench:openj9-ek", BenchmarkPlan.toEbicsImage("tfl4-ek-bench:openj9-ek"));
+    }
+
+    // ==================== combinedPlan ====================
+
+    @Test
+    void combinedPlan_contains32Configs() {
+        BenchmarkPlan plan = BenchmarkPlan.combinedPlan();
+        assertEquals(32, plan.configs.size(),
+                "Combined plan should contain 32 configs (20 default + 12 profiles)");
+    }
+
+    @Test
+    void combinedPlan_startsWithBaseline() {
+        BenchmarkPlan plan = BenchmarkPlan.combinedPlan();
+        assertEquals("baseline", plan.configs.get(0).name(),
+                "Combined plan should start with baseline");
+    }
+
+    @Test
+    void combinedPlan_profilesAfterDefaults() {
+        BenchmarkPlan plan = BenchmarkPlan.combinedPlan();
+        // Config at index 20 should be P01 (first profile)
+        assertEquals("P01-hotspot-standard", plan.configs.get(20).name(),
+                "Profiles should start at index 20 (after 20 default configs)");
+    }
+
+    @Test
+    void combinedPlan_endsWithP12() {
+        BenchmarkPlan plan = BenchmarkPlan.combinedPlan();
+        assertEquals("P12-graalvm-jit", plan.configs.get(31).name(),
+                "Combined plan should end with P12");
+    }
+
+    @Test
+    void combinedPlan_allNamesUnique() {
+        BenchmarkPlan plan = BenchmarkPlan.combinedPlan();
+        long distinctNames = plan.configs.stream()
+                .map(BenchmarkConfig::name)
+                .distinct()
+                .count();
+        assertEquals(plan.configs.size(), distinctNames, "All config names must be unique");
+    }
+
+    @Test
+    void combinedPlan_withEbicsImages_allEndWithEk() {
+        BenchmarkPlan plan = BenchmarkPlan.combinedPlan().withEbicsImages();
+        for (BenchmarkConfig cfg : plan.configs) {
+            assertTrue(cfg.dockerImage().endsWith("-ek"),
+                    "EBICS combined plan: image for '" + cfg.name() + "' should end with '-ek', got: " + cfg.dockerImage());
         }
     }
 

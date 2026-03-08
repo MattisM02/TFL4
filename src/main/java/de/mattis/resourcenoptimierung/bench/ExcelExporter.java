@@ -740,6 +740,13 @@ public final class ExcelExporter {
 
             chart.plot(scatterData);
 
+            // Smooth-Interpolation deaktivieren: gerade Linien statt Kurven
+            for (CTScatterChart sc : chart.getCTChart().getPlotArea().getScatterChartList()) {
+                for (CTScatterSer ser : sc.getSerArray()) {
+                    ser.addNewSmooth().setVal(false);
+                }
+            }
+
             XDDFChartLegend legend = chart.getOrAddLegend();
             legend.setPosition(LegendPosition.BOTTOM);
         }

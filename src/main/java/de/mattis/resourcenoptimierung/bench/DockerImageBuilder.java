@@ -34,12 +34,16 @@ public class DockerImageBuilder {
      * Reihenfolge: erst non-EK, dann EK-Varianten.
      */
     static final Map<String, String> IMAGE_DOCKERFILE_MAP = Map.of(
-            "tfl4-ek-bench:jvm",        "Dockerfile",
-            "tfl4-ek-bench:jvm-ek",     "Dockerfile.with-ek",
-            "tfl4-ek-bench:openj9",     "Dockerfile.openj9",
-            "tfl4-ek-bench:openj9-ek",  "Dockerfile.openj9.with-ek",
-            "tfl4-ek-bench:native",     "Dockerfile.native",
-            "tfl4-ek-bench:native-ek",  "Dockerfile.native.with-ek"
+            "tfl4-ek-bench:jvm",              "Dockerfile",
+            "tfl4-ek-bench:jvm-ek",           "Dockerfile.with-ek",
+            "tfl4-ek-bench:openj9",           "Dockerfile.openj9",
+            "tfl4-ek-bench:openj9-ek",        "Dockerfile.openj9.with-ek",
+            "tfl4-ek-bench:native",           "Dockerfile.native",
+            "tfl4-ek-bench:native-ek",        "Dockerfile.native.with-ek",
+            "tfl4-ek-bench:graalvm-jit",      "Dockerfile.graalvm-jit",
+            "tfl4-ek-bench:graalvm-jit-ek",   "Dockerfile.graalvm-jit.with-ek",
+            "tfl4-ek-bench:jvm-cds",          "Dockerfile.cds",
+            "tfl4-ek-bench:jvm-cds-ek",       "Dockerfile.cds.with-ek"
     );
 
     /**

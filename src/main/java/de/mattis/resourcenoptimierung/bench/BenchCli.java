@@ -32,7 +32,7 @@ import java.util.List;
  * - --configName:              Name fuer die CLI-Konfiguration (default: "cli-custom")
  * - --dockerImage:             Docker-Image fuer den CLI-Run (default: "tfl4-ek-bench:jvm")
  * - --skipTravicLink:          TravicLink docker-compose NICHT starten (externer Server erwartet)
- * - --profiles:                Laufzeitprofile statt Flag-Analyse (5 Profile P01-P05 statt 20 HotSpot-Configs)
+     * - --profiles:                Nur Laufzeitprofile statt kombiniertem Plan (12 Profile P01-P12 statt 20+12=32 Configs)
  * - --rebuild:                 Erzwingt Neuaufbau von Maven-JAR und Docker-Images (auch wenn vorhanden)
  * - --merge-excel:             Alle CSVs aus bench-results/ in ein Excel zusammenfuehren (kein Benchmark)
  * - --quick:                   Schnelldurchlauf (10 Warmup, 30 Mess-Requests, 1 Wiederholung).
@@ -170,10 +170,12 @@ public class BenchCli {
     /**
      * Bestimmt den Benchmark-Plan.
      * Wenn --jvmArgs gesetzt ist, wird ein Plan mit einer einzelnen Konfiguration erzeugt.
-     * Sonst wird der Default-Plan verwendet.
+     * Sonst wird der kombinierte Plan (20 Flag-Analyse + 12 Laufzeitprofile) verwendet.
+     * Mit --profiles wird nur der Profil-Plan (12 Profile) verwendet.
      *
-     * Fuer EBICS-Szenarien wird das Docker-Image automatisch auf tfl4-ek-bench:jvm-ek
-     * umgestellt, sofern nicht per --dockerImage explizit ueberschrieben.
+     * Fuer EBICS-Szenarien werden die Docker-Images automatisch auf die EK-Varianten
+     * umgestellt (Suffix-Konvention: Tag + "-ek"), sofern nicht per --dockerImage
+     * explizit ueberschrieben.
      *
      * @param args CLI-Argumente
      * @param scenario Szenario (fuer Image-Auswahl)
@@ -185,15 +187,12 @@ public class BenchCli {
 
         String jvmArgsRaw = findArgValue(args, "--jvmArgs");
         if (jvmArgsRaw == null) {
-            // Entscheidung: Flag-Analyse (default) oder Laufzeitprofile (--profiles)
+            // Entscheidung: nur Profile (--profiles) oder kombinierter Plan (default)
             BenchmarkPlan plan = hasFlag(args, "--profiles")
                     ? BenchmarkPlan.profilePlan()
-                    : BenchmarkPlan.defaultPlan();
+                    : BenchmarkPlan.combinedPlan();
             if (ebics) {
-                // Alle Configs auf die passenden EK-Images umstellen
-                plan = hasFlag(args, "--profiles")
-                        ? plan.withEbicsImages()
-                        : plan.withDockerImage(defaultImage);
+                plan = plan.withEbicsImages();
             }
             return plan;
         }

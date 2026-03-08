@@ -220,12 +220,13 @@ class BenchCliTest {
     // ==================== resolvePlan ====================
 
     @Test
-    void resolvePlan_noJvmArgs_returnsDefaultPlan() {
+    void resolvePlan_noJvmArgs_returnsCombinedPlan() {
         String[] args = {"--scenario", "json"};
         BenchmarkPlan plan = BenchCli.resolvePlan(args, BenchmarkScenario.PAYLOAD_HEAVY_JSON);
-        BenchmarkPlan defaultPlan = BenchmarkPlan.defaultPlan();
-        assertEquals(defaultPlan.configs.size(), plan.configs.size());
+        assertEquals(32, plan.configs.size(),
+                "Without --profiles, combined plan should have 32 configs (20 default + 12 profiles)");
         assertEquals("baseline", plan.configs.get(0).name());
+        assertEquals("P01-hotspot-standard", plan.configs.get(20).name());
     }
 
     @Test
@@ -278,13 +279,14 @@ class BenchCliTest {
     // ==================== resolvePlan — EBICS image auto-selection ====================
 
     @Test
-    void resolvePlan_ebicsUpload_defaultPlan_usesEkImage() {
+    void resolvePlan_ebicsUpload_defaultPlan_usesEkImages() {
         String[] args = {};
         BenchmarkPlan plan = BenchCli.resolvePlan(args, BenchmarkScenario.EBICS_UPLOAD);
-        // Alle Configs muessen auf das EK-Image umgestellt sein
+        assertEquals(32, plan.configs.size(), "EBICS combined plan should have 32 configs");
+        // Alle Configs muessen auf EK-Images enden
         for (BenchmarkConfig cfg : plan.configs) {
-            assertEquals("tfl4-ek-bench:jvm-ek", cfg.dockerImage(),
-                    "EBICS scenario should auto-select jvm-ek image for config '" + cfg.name() + "'");
+            assertTrue(cfg.dockerImage().endsWith("-ek"),
+                    "EBICS scenario: image for '" + cfg.name() + "' should end with '-ek', got: " + cfg.dockerImage());
         }
     }
 
@@ -305,11 +307,14 @@ class BenchCliTest {
     }
 
     @Test
-    void resolvePlan_nonEbics_defaultPlan_usesStandardImage() {
+    void resolvePlan_nonEbics_combinedPlan_defaultImagesNotEk() {
         String[] args = {};
         BenchmarkPlan plan = BenchCli.resolvePlan(args, BenchmarkScenario.ALLOC_HEAVY_OK);
+        assertEquals(32, plan.configs.size());
+        // No image should end with -ek in non-EBICS mode
         for (BenchmarkConfig cfg : plan.configs) {
-            assertEquals("tfl4-ek-bench:jvm", cfg.dockerImage());
+            assertFalse(cfg.dockerImage().endsWith("-ek"),
+                    "Non-EBICS: image for '" + cfg.name() + "' should not end with '-ek'");
         }
     }
 
@@ -319,7 +324,7 @@ class BenchCliTest {
     void resolvePlan_profilesFlag_returnsProfilePlan() {
         String[] args = {"--profiles"};
         BenchmarkPlan plan = BenchCli.resolvePlan(args, BenchmarkScenario.PAYLOAD_HEAVY_JSON);
-        assertEquals(5, plan.configs.size(), "Profile plan should have 5 configs (P01-P05)");
+        assertEquals(12, plan.configs.size(), "Profile plan should have 12 configs (P01-P12)");
         assertTrue(plan.configs.get(0).name().startsWith("P01"));
     }
 
@@ -327,19 +332,29 @@ class BenchCliTest {
     void resolvePlan_profilesFlag_ebics_usesEbicsImages() {
         String[] args = {"--profiles"};
         BenchmarkPlan plan = BenchCli.resolvePlan(args, BenchmarkScenario.EBICS_UPLOAD);
-        assertEquals(5, plan.configs.size());
+        assertEquals(12, plan.configs.size());
         // P01 (HOTSPOT) should use jvm-ek
         assertEquals("tfl4-ek-bench:jvm-ek", plan.configs.get(0).dockerImage());
         // P04 (OPENJ9) should use openj9-ek
         BenchmarkConfig p04 = plan.configs.stream()
-                .filter(c -> c.name().contains("openj9"))
+                .filter(c -> c.name().contains("P04"))
                 .findFirst().orElseThrow();
         assertEquals("tfl4-ek-bench:openj9-ek", p04.dockerImage());
         // P05 (NATIVE) should use native-ek
         BenchmarkConfig p05 = plan.configs.stream()
-                .filter(c -> c.name().contains("native"))
+                .filter(c -> c.name().contains("P05"))
                 .findFirst().orElseThrow();
         assertEquals("tfl4-ek-bench:native-ek", p05.dockerImage());
+        // P11 (CDS) should use jvm-cds-ek
+        BenchmarkConfig p11 = plan.configs.stream()
+                .filter(c -> c.name().contains("P11"))
+                .findFirst().orElseThrow();
+        assertEquals("tfl4-ek-bench:jvm-cds-ek", p11.dockerImage());
+        // P12 (GraalVM JIT) should use graalvm-jit-ek
+        BenchmarkConfig p12 = plan.configs.stream()
+                .filter(c -> c.name().contains("P12"))
+                .findFirst().orElseThrow();
+        assertEquals("tfl4-ek-bench:graalvm-jit-ek", p12.dockerImage());
     }
 
     @Test

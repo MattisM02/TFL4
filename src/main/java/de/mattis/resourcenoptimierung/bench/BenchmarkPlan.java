@@ -1,5 +1,6 @@
 package de.mattis.resourcenoptimierung.bench;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -17,7 +18,7 @@ import java.util.List;
  *   <li><b>Level 1 — Flag-Analyse</b> ({@link #defaultPlan()}):
  *       20 HotSpot-Konfigurationen, die einzelne JVM-Flags variieren.</li>
  *   <li><b>Level 2 — Laufzeitprofile</b> ({@link #profilePlan()}):
- *       5 standardisierte Profile (P01–P05), die verschiedene JVM-Implementierungen
+ *       12 standardisierte Profile (P01–P12), die verschiedene JVM-Implementierungen
  *       und Laufzeitmodelle vergleichen.</li>
  * </ul>
  */
@@ -241,56 +242,118 @@ public class BenchmarkPlan {
     /**
      * Erzeugt den Laufzeitprofil-Plan (Level 2: Vergleich standardisierter Laufzeitprofile).
      *
-     * <p>Vergleicht 5 repraesentative Laufzeitprofile, die jeweils eine typische
+     * <p>Vergleicht 12 repraesentative Laufzeitprofile, die jeweils eine typische
      * Cloud-Deployment-Strategie abbilden:
      *
      * <table>
      *   <tr><th>Profil</th><th>Runtime</th><th>Image</th><th>Beschreibung</th></tr>
-     *   <tr><td>P01-hotspot-standard</td><td>HOTSPOT</td><td>tfl4-ek-bench:jvm</td>
+     *   <tr><td>P01-hotspot-standard</td><td>HOTSPOT</td><td>jvm</td>
      *       <td>G1GC mit 75% RAM — Standard-Cloud-Deployment</td></tr>
-     *   <tr><td>P02-hotspot-fast-startup</td><td>HOTSPOT</td><td>tfl4-ek-bench:jvm</td>
+     *   <tr><td>P02-hotspot-fast-startup</td><td>HOTSPOT</td><td>jvm</td>
      *       <td>G1GC + C1-only — Serverless/Cold-Start-optimiert</td></tr>
-     *   <tr><td>P03-hotspot-low-latency</td><td>HOTSPOT</td><td>tfl4-ek-bench:jvm</td>
+     *   <tr><td>P03-hotspot-low-latency</td><td>HOTSPOT</td><td>jvm</td>
      *       <td>ZGC — Sub-Millisekunden-Pausen</td></tr>
-     *   <tr><td>P04-openj9-low-memory</td><td>OPENJ9</td><td>tfl4-ek-bench:openj9</td>
+     *   <tr><td>P04-openj9-low-memory</td><td>OPENJ9</td><td>openj9</td>
      *       <td>OpenJ9 gencon GC — Memory-optimiert</td></tr>
-     *   <tr><td>P05-native</td><td>NATIVE</td><td>tfl4-ek-bench:native</td>
+     *   <tr><td>P05-native</td><td>NATIVE</td><td>native</td>
      *       <td>GraalVM Native Image — kein JVM-Overhead</td></tr>
+     *   <tr><td>P06-openj9-balanced</td><td>OPENJ9</td><td>openj9</td>
+     *       <td>OpenJ9 balanced GC — Region-basiert, NUMA-aware</td></tr>
+     *   <tr><td>P07-openj9-optthruput</td><td>OPENJ9</td><td>openj9</td>
+     *       <td>OpenJ9 optthruput GC — Durchsatz-optimiert</td></tr>
+     *   <tr><td>P08-openj9-optavgpause</td><td>OPENJ9</td><td>openj9</td>
+     *       <td>OpenJ9 optavgpause GC — Pausen-optimiert</td></tr>
+     *   <tr><td>P09-hotspot-heap-256m</td><td>HOTSPOT</td><td>jvm</td>
+     *       <td>G1GC mit 256 MB Heap — Speicher-limitiert</td></tr>
+     *   <tr><td>P10-openj9-heap-256m</td><td>OPENJ9</td><td>openj9</td>
+     *       <td>OpenJ9 mit 256 MB Heap — Speicher-limitiert</td></tr>
+     *   <tr><td>P11-hotspot-cds</td><td>HOTSPOT</td><td>jvm-cds</td>
+     *       <td>HotSpot mit Dynamic CDS — Startup-optimiert</td></tr>
+     *   <tr><td>P12-graalvm-jit</td><td>HOTSPOT</td><td>graalvm-jit</td>
+     *       <td>GraalVM JIT-Compiler (JVMCI) — optimierte Codegenerierung</td></tr>
      * </table>
      *
-     * @return Benchmark-Plan mit den 5 Laufzeitprofilen
+     * @return Benchmark-Plan mit den 12 Laufzeitprofilen
      */
     public static BenchmarkPlan profilePlan() {
+        String imgJvm      = "tfl4-ek-bench:jvm";
+        String imgOpenj9   = "tfl4-ek-bench:openj9";
+        String imgNative   = "tfl4-ek-bench:native";
+        String imgCds      = "tfl4-ek-bench:jvm-cds";
+        String imgGraalJit = "tfl4-ek-bench:graalvm-jit";
+
         return new BenchmarkPlan(List.of(
                 new BenchmarkConfig(
                         "P01-hotspot-standard",
-                        "tfl4-ek-bench:jvm",
+                        imgJvm,
                         List.of("-XX:+UseG1GC", "-XX:MaxRAMPercentage=75"),
                         RuntimeType.HOTSPOT
                 ),
                 new BenchmarkConfig(
                         "P02-hotspot-fast-startup",
-                        "tfl4-ek-bench:jvm",
+                        imgJvm,
                         List.of("-XX:+UseG1GC", "-XX:TieredStopAtLevel=1", "-XX:MaxRAMPercentage=75"),
                         RuntimeType.HOTSPOT
                 ),
                 new BenchmarkConfig(
                         "P03-hotspot-low-latency",
-                        "tfl4-ek-bench:jvm",
+                        imgJvm,
                         List.of("-XX:+UseZGC", "-XX:MaxRAMPercentage=75"),
                         RuntimeType.HOTSPOT
                 ),
                 new BenchmarkConfig(
                         "P04-openj9-low-memory",
-                        "tfl4-ek-bench:openj9",
+                        imgOpenj9,
                         List.of("-XX:MaxRAMPercentage=75"),
                         RuntimeType.OPENJ9
                 ),
                 new BenchmarkConfig(
                         "P05-native",
-                        "tfl4-ek-bench:native",
+                        imgNative,
                         List.of(),
                         RuntimeType.NATIVE
+                ),
+                new BenchmarkConfig(
+                        "P06-openj9-balanced",
+                        imgOpenj9,
+                        List.of("-Xgcpolicy:balanced", "-XX:MaxRAMPercentage=75"),
+                        RuntimeType.OPENJ9
+                ),
+                new BenchmarkConfig(
+                        "P07-openj9-optthruput",
+                        imgOpenj9,
+                        List.of("-Xgcpolicy:optthruput", "-XX:MaxRAMPercentage=75"),
+                        RuntimeType.OPENJ9
+                ),
+                new BenchmarkConfig(
+                        "P08-openj9-optavgpause",
+                        imgOpenj9,
+                        List.of("-Xgcpolicy:optavgpause", "-XX:MaxRAMPercentage=75"),
+                        RuntimeType.OPENJ9
+                ),
+                new BenchmarkConfig(
+                        "P09-hotspot-heap-256m",
+                        imgJvm,
+                        List.of("-XX:+UseG1GC", "-Xmx256m"),
+                        RuntimeType.HOTSPOT
+                ),
+                new BenchmarkConfig(
+                        "P10-openj9-heap-256m",
+                        imgOpenj9,
+                        List.of("-Xmx256m"),
+                        RuntimeType.OPENJ9
+                ),
+                new BenchmarkConfig(
+                        "P11-hotspot-cds",
+                        imgCds,
+                        List.of("-XX:+UseG1GC", "-XX:MaxRAMPercentage=75"),
+                        RuntimeType.HOTSPOT
+                ),
+                new BenchmarkConfig(
+                        "P12-graalvm-jit",
+                        imgGraalJit,
+                        List.of("-XX:+UseG1GC", "-XX:MaxRAMPercentage=75"),
+                        RuntimeType.HOTSPOT
                 )
         ));
     }
@@ -299,11 +362,17 @@ public class BenchmarkPlan {
      * Erzeugt einen neuen Plan mit EBICS-spezifischen Docker-Images.
      *
      * <p>Fuer EBICS-Szenarien muessen die Docker-Images die EBICS-Konfiguration
-     * und Schluessel enthalten. Die Image-Zuordnung erfolgt anhand des RuntimeType:
+     * und Schluessel enthalten. Die Image-Zuordnung erfolgt per Suffix-Konvention:
+     * An den Tag-Teil des Image-Namens wird {@code -ek} angehaengt.
+     * Falls der Tag bereits auf {@code -ek} endet, bleibt er unveraendert.
+     *
+     * <p>Beispiele:
      * <ul>
-     *   <li>HOTSPOT → tfl4-ek-bench:jvm-ek</li>
-     *   <li>OPENJ9 → tfl4-ek-bench:openj9-ek</li>
-     *   <li>NATIVE → tfl4-ek-bench:native-ek</li>
+     *   <li>{@code tfl4-ek-bench:jvm} → {@code tfl4-ek-bench:jvm-ek}</li>
+     *   <li>{@code tfl4-ek-bench:openj9} → {@code tfl4-ek-bench:openj9-ek}</li>
+     *   <li>{@code tfl4-ek-bench:graalvm-jit} → {@code tfl4-ek-bench:graalvm-jit-ek}</li>
+     *   <li>{@code tfl4-ek-bench:jvm-cds} → {@code tfl4-ek-bench:jvm-cds-ek}</li>
+     *   <li>{@code tfl4-ek-bench:jvm-ek} → {@code tfl4-ek-bench:jvm-ek} (unchanged)</li>
      * </ul>
      *
      * @return neuer Plan mit EBICS-Images
@@ -311,14 +380,34 @@ public class BenchmarkPlan {
     public BenchmarkPlan withEbicsImages() {
         List<BenchmarkConfig> updated = configs.stream()
                 .map(c -> {
-                    String ebicsImage = switch (c.runtimeType()) {
-                        case HOTSPOT -> "tfl4-ek-bench:jvm-ek";
-                        case OPENJ9  -> "tfl4-ek-bench:openj9-ek";
-                        case NATIVE  -> "tfl4-ek-bench:native-ek";
-                    };
+                    String ebicsImage = toEbicsImage(c.dockerImage());
                     return new BenchmarkConfig(c.name(), ebicsImage, c.jvmArgs(), c.runtimeType());
                 })
                 .toList();
         return new BenchmarkPlan(updated);
+    }
+
+    /**
+     * Wandelt einen Docker-Image-Tag in die EBICS-Variante um (Suffix {@code -ek}).
+     * Idempotent: ein Tag, der bereits auf {@code -ek} endet, bleibt unveraendert.
+     *
+     * @param image Docker-Image-Tag (z.B. {@code tfl4-ek-bench:jvm})
+     * @return EBICS-Variante (z.B. {@code tfl4-ek-bench:jvm-ek})
+     */
+    static String toEbicsImage(String image) {
+        if (image.endsWith("-ek")) return image;
+        return image + "-ek";
+    }
+
+    /**
+     * Erzeugt einen kombinierten Plan: erst Default-Plan (20 Flag-Analyse-Configs),
+     * dann Profile-Plan (12 Laufzeitprofile).
+     *
+     * @return kombinierter Plan mit 32 Konfigurationen
+     */
+    public static BenchmarkPlan combinedPlan() {
+        List<BenchmarkConfig> combined = new ArrayList<>(defaultPlan().configs);
+        combined.addAll(profilePlan().configs);
+        return new BenchmarkPlan(combined);
     }
 }
