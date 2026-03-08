@@ -1,7 +1,7 @@
 # ── Stage 1: Native Image Build ──────────────────────────────────────────────
 # GraalVM Native Image erfordert das volle JDK + native-image Tool.
 # Der Build braucht viel RAM (empfohlen: mindestens 4 GB fuer docker build).
-FROM ghcr.io/graalvm/native-image:25 AS builder
+FROM ghcr.io/graalvm/native-image-community:25 AS builder
 
 WORKDIR /build
 COPY target/jvm-optim-demo-0.0.1-SNAPSHOT.jar app.jar
@@ -12,6 +12,7 @@ COPY target/jvm-optim-demo-0.0.1-SNAPSHOT.jar app.jar
 RUN native-image \
     --no-fallback \
     -H:+ReportExceptionStackTraces \
+    --initialize-at-build-time=org.springframework.boot.loader.nio.file.NestedFileSystemProvider \
     -jar app.jar \
     -o app
 

@@ -13,13 +13,19 @@ import java.util.List;
  * Der Plan enthaelt selbst keine Ausfuehrungs- oder Messlogik.
  * Er dient als strukturierte Eingabe fuer den BenchmarkRunner.
  *
- * <h3>Zwei Analyseebenen</h3>
+ * <h3>Einheitlicher Plan</h3>
+ * <p>Alle Konfigurationen — sowohl Flag-Analysen als auch Laufzeitprofile —
+ * befinden sich in einem einzigen Plan. Jede Konfiguration traegt Metadaten
+ * (Kategorie und Laufzeitmodell) fuer die Gruppierung und Filterung im Excel-Export.</p>
+ *
+ * <h3>Kategorien</h3>
  * <ul>
- *   <li><b>Level 1 — Flag-Analyse</b> ({@link #defaultPlan()}):
- *       20 HotSpot-Konfigurationen, die einzelne JVM-Flags variieren.</li>
- *   <li><b>Level 2 — Laufzeitprofile</b> ({@link #profilePlan()}):
- *       12 standardisierte Profile (P01–P12), die verschiedene JVM-Implementierungen
- *       und Laufzeitmodelle vergleichen.</li>
+ *   <li><b>GC-Vergleich</b>: Vergleich verschiedener Garbage Collectors</li>
+ *   <li><b>G1-Tuning</b>: G1GC mit verschiedenen Parametern</li>
+ *   <li><b>JVM-Interna</b>: Interne JVM-Optionen (CompressedOops, CompactObjectHeaders)</li>
+ *   <li><b>Cloud-relevant</b>: Container-optimierte Einstellungen</li>
+ *   <li><b>Kombination</b>: Mehrere Flags kombiniert</li>
+ *   <li><b>Laufzeitprofil</b>: Standardisierte Laufzeitprofile (P01–P12)</li>
  * </ul>
  */
 public class BenchmarkPlan {
@@ -48,19 +54,19 @@ public class BenchmarkPlan {
      */
     public BenchmarkPlan withDockerImage(String dockerImage) {
         List<BenchmarkConfig> updated = configs.stream()
-                .map(c -> new BenchmarkConfig(c.name(), dockerImage, c.jvmArgs(), c.runtimeType()))
+                .map(c -> new BenchmarkConfig(c.name(), dockerImage, c.jvmArgs(), c.runtimeType(),
+                        c.category(), c.runtimeModel()))
                 .toList();
         return new BenchmarkPlan(updated);
     }
 
     /**
-     * Erzeugt den Standard-Benchmark-Plan fuer dieses Projekt (Level 1: Flag-Analyse).
+     * Erzeugt den vollstaendigen Benchmark-Plan (31 Konfigurationen).
      *
-     * Der Default-Plan vergleicht systematisch JVM-Varianten
-     * mit demselben Docker-Image (Temurin JRE 25), sodass Unterschiede
-     * ausschliesslich durch JVM-Flags entstehen.
+     * <p>Enthaelt alle Flag-Analyse-Konfigurationen (20) und alle Laufzeitprofile (11).
+     * Jede Konfiguration traegt Metadaten (Kategorie, Laufzeitmodell) fuer Excel-Gruppierung.
      *
-     * <h3>Garbage-Collector-Vergleich</h3>
+     * <h3>Garbage-Collector-Vergleich (5)</h3>
      * <ul>
      *   <li>baseline — G1GC (Default seit JDK 9), keine zusaetzlichen Flags</li>
      *   <li>zgc — ZGC (seit JDK 24 ausschliesslich generational), Sub-Millisekunden-Pausen</li>
@@ -69,26 +75,26 @@ public class BenchmarkPlan {
      *   <li>serial-gc — SerialGC, Single-Thread-GC, minimaler Overhead</li>
      * </ul>
      *
-     * <h3>G1GC-Tuning</h3>
+     * <h3>G1GC-Tuning (3)</h3>
      * <ul>
      *   <li>g1-low-pause — G1 mit aggressivem Pausenziel (50 ms)</li>
      *   <li>g1-heap-256m — G1 mit eingeschraenktem Heap (256 MB)</li>
      *   <li>g1-heap-512m — G1 mit mittlerem Heap (512 MB)</li>
      * </ul>
      *
-     * <h3>JVM-Interna</h3>
+     * <h3>JVM-Interna (2)</h3>
      * <ul>
      *   <li>coops-off — Compressed Oops deaktiviert (groesserer Footprint, 64-Bit-Referenzen)</li>
      *   <li>coh-on — Compact Object Headers (JEP 450, experimentell ab JDK 24)</li>
      * </ul>
      *
-     * <h3>Cloud-relevante Konfigurationen</h3>
+     * <h3>Cloud-relevante Konfigurationen (2)</h3>
      * <ul>
      *   <li>ram-percentage-75 — MaxRAMPercentage=75: Container-aware Heap-Sizing (75% des cgroup-Limits)</li>
      *   <li>tiered-stop-1 — TieredStopAtLevel=1: Nur C1-Kompilierung, schnellerer Start, kein C2-Overhead</li>
      * </ul>
      *
-     * <h3>Flag-Kombinationen</h3>
+     * <h3>Flag-Kombinationen (8)</h3>
      * <ul>
      *   <li>serial-gc-256m — SerialGC + 256 MB Heap: minimaler Footprint</li>
      *   <li>zgc-heap-512m — ZGC + 512 MB Heap: mehr Spielraum fuer concurrent GC</li>
@@ -100,262 +106,310 @@ public class BenchmarkPlan {
      *   <li>zgc-tiered-stop-1 — ZGC + C1-only: niedrige Pausen mit schnellem Start (Serverless/Cold-Start)</li>
      * </ul>
      *
-     * @return Benchmark-Plan mit Standard-Konfigurationen
+     * <h3>Laufzeitprofile (11, P01–P04 + P06–P12)</h3>
+     * <ul>
+     *   <li>P01-hotspot-standard — G1GC + 75% RAM (Standard-Cloud-Deployment)</li>
+     *   <li>P02-hotspot-fast-startup — G1GC + C1-only (Serverless/Cold-Start)</li>
+     *   <li>P03-hotspot-low-latency — ZGC (Sub-Millisekunden-Pausen)</li>
+     *   <li>P04-openj9-low-memory — OpenJ9 gencon GC (Memory-optimiert)</li>
+     *   <li>P06-openj9-balanced — OpenJ9 balanced GC (Region-basiert, NUMA-aware)</li>
+     *   <li>P07-openj9-optthruput — OpenJ9 optthruput GC (Durchsatz-optimiert)</li>
+     *   <li>P08-openj9-optavgpause — OpenJ9 optavgpause GC (Pausen-optimiert)</li>
+     *   <li>P09-hotspot-heap-256m — G1GC + 256 MB Heap (Speicher-limitiert)</li>
+     *   <li>P10-openj9-heap-256m — OpenJ9 + 256 MB Heap (Speicher-limitiert)</li>
+     *   <li>P11-hotspot-cds — HotSpot + Dynamic CDS (Startup-optimiert)</li>
+     *   <li>P12-graalvm-jit — GraalVM JIT-Compiler (optimierte Codegenerierung)</li>
+     * </ul>
+     *
+     * @return Benchmark-Plan mit 31 Konfigurationen
      */
     public static BenchmarkPlan defaultPlan() {
         String img = "tfl4-ek-bench:jvm";
         RuntimeType rt = RuntimeType.HOTSPOT;
+        String model = "HotSpot";
+
+        String imgOpenj9   = "tfl4-ek-bench:openj9";
+        String imgCds      = "tfl4-ek-bench:jvm-cds";
+        String imgGraalJit = "tfl4-ek-bench:graalvm-jit";
 
         return new BenchmarkPlan(List.of(
-                // --- Garbage-Collector-Vergleich ---
+                // ==================== Garbage-Collector-Vergleich ====================
                 new BenchmarkConfig(
                         "baseline",
                         img,
                         List.of(),
-                        rt
+                        rt,
+                        "GC-Vergleich",
+                        model
                 ),
                 new BenchmarkConfig(
                         "zgc",
                         img,
                         List.of("-XX:+UseZGC"),
-                        rt
+                        rt,
+                        "GC-Vergleich",
+                        model
                 ),
                 new BenchmarkConfig(
                         "shenandoah",
                         img,
                         List.of("-XX:+UseShenandoahGC"),
-                        rt
+                        rt,
+                        "GC-Vergleich",
+                        model
                 ),
                 new BenchmarkConfig(
                         "parallel-gc",
                         img,
                         List.of("-XX:+UseParallelGC"),
-                        rt
+                        rt,
+                        "GC-Vergleich",
+                        model
                 ),
                 new BenchmarkConfig(
                         "serial-gc",
                         img,
                         List.of("-XX:+UseSerialGC"),
-                        rt
+                        rt,
+                        "GC-Vergleich",
+                        model
                 ),
 
-                // --- G1GC-Tuning ---
+                // ==================== G1GC-Tuning ====================
                 new BenchmarkConfig(
                         "g1-low-pause",
                         img,
                         List.of("-XX:+UseG1GC", "-XX:MaxGCPauseMillis=50"),
-                        rt
+                        rt,
+                        "G1-Tuning",
+                        model
                 ),
                 new BenchmarkConfig(
                         "g1-heap-256m",
                         img,
                         List.of("-Xmx256m"),
-                        rt
+                        rt,
+                        "G1-Tuning",
+                        model
                 ),
                 new BenchmarkConfig(
                         "g1-heap-512m",
                         img,
                         List.of("-Xmx512m"),
-                        rt
+                        rt,
+                        "G1-Tuning",
+                        model
                 ),
 
-                // --- JVM-Interna ---
+                // ==================== JVM-Interna ====================
                 new BenchmarkConfig(
                         "coops-off",
                         img,
                         List.of("-XX:-UseCompressedOops"),
-                        rt
+                        rt,
+                        "JVM-Interna",
+                        model
                 ),
                 new BenchmarkConfig(
                         "coh-on",
                         img,
                         List.of("-XX:+UnlockExperimentalVMOptions", "-XX:+UseCompactObjectHeaders"),
-                        rt
+                        rt,
+                        "JVM-Interna",
+                        model
                 ),
 
-                // --- Cloud-relevante Konfigurationen ---
+                // ==================== Cloud-relevante Konfigurationen ====================
                 new BenchmarkConfig(
                         "ram-percentage-75",
                         img,
                         List.of("-XX:MaxRAMPercentage=75"),
-                        rt
+                        rt,
+                        "Cloud-relevant",
+                        model
                 ),
                 new BenchmarkConfig(
                         "tiered-stop-1",
                         img,
                         List.of("-XX:TieredStopAtLevel=1"),
-                        rt
+                        rt,
+                        "Cloud-relevant",
+                        model
                 ),
 
-                // --- Flag-Kombinationen ---
+                // ==================== Flag-Kombinationen ====================
                 new BenchmarkConfig(
                         "serial-gc-256m",
                         img,
                         List.of("-XX:+UseSerialGC", "-Xmx256m"),
-                        rt
+                        rt,
+                        "Kombination",
+                        model
                 ),
                 new BenchmarkConfig(
                         "zgc-heap-512m",
                         img,
                         List.of("-XX:+UseZGC", "-Xmx512m"),
-                        rt
+                        rt,
+                        "Kombination",
+                        model
                 ),
                 new BenchmarkConfig(
                         "shenandoah-heap-512m",
                         img,
                         List.of("-XX:+UseShenandoahGC", "-Xmx512m"),
-                        rt
+                        rt,
+                        "Kombination",
+                        model
                 ),
                 new BenchmarkConfig(
                         "tiered-stop-1-serial",
                         img,
                         List.of("-XX:TieredStopAtLevel=1", "-XX:+UseSerialGC"),
-                        rt
+                        rt,
+                        "Kombination",
+                        model
                 ),
                 new BenchmarkConfig(
                         "g1-coh-on",
                         img,
                         List.of("-XX:+UseG1GC", "-XX:+UnlockExperimentalVMOptions", "-XX:+UseCompactObjectHeaders"),
-                        rt
+                        rt,
+                        "Kombination",
+                        model
                 ),
                 new BenchmarkConfig(
                         "parallel-gc-256m",
                         img,
                         List.of("-XX:+UseParallelGC", "-Xmx256m"),
-                        rt
+                        rt,
+                        "Kombination",
+                        model
                 ),
                 new BenchmarkConfig(
                         "g1-large-young",
                         img,
                         List.of("-XX:+UseG1GC", "-XX:NewRatio=1"),
-                        rt
+                        rt,
+                        "Kombination",
+                        model
                 ),
                 new BenchmarkConfig(
                         "zgc-tiered-stop-1",
                         img,
                         List.of("-XX:+UseZGC", "-XX:TieredStopAtLevel=1"),
-                        rt
-                )
-        ));
-    }
+                        rt,
+                        "Kombination",
+                        model
+                ),
 
-    /**
-     * Erzeugt den Laufzeitprofil-Plan (Level 2: Vergleich standardisierter Laufzeitprofile).
-     *
-     * <p>Vergleicht 12 repraesentative Laufzeitprofile, die jeweils eine typische
-     * Cloud-Deployment-Strategie abbilden:
-     *
-     * <table>
-     *   <tr><th>Profil</th><th>Runtime</th><th>Image</th><th>Beschreibung</th></tr>
-     *   <tr><td>P01-hotspot-standard</td><td>HOTSPOT</td><td>jvm</td>
-     *       <td>G1GC mit 75% RAM — Standard-Cloud-Deployment</td></tr>
-     *   <tr><td>P02-hotspot-fast-startup</td><td>HOTSPOT</td><td>jvm</td>
-     *       <td>G1GC + C1-only — Serverless/Cold-Start-optimiert</td></tr>
-     *   <tr><td>P03-hotspot-low-latency</td><td>HOTSPOT</td><td>jvm</td>
-     *       <td>ZGC — Sub-Millisekunden-Pausen</td></tr>
-     *   <tr><td>P04-openj9-low-memory</td><td>OPENJ9</td><td>openj9</td>
-     *       <td>OpenJ9 gencon GC — Memory-optimiert</td></tr>
-     *   <tr><td>P05-native</td><td>NATIVE</td><td>native</td>
-     *       <td>GraalVM Native Image — kein JVM-Overhead</td></tr>
-     *   <tr><td>P06-openj9-balanced</td><td>OPENJ9</td><td>openj9</td>
-     *       <td>OpenJ9 balanced GC — Region-basiert, NUMA-aware</td></tr>
-     *   <tr><td>P07-openj9-optthruput</td><td>OPENJ9</td><td>openj9</td>
-     *       <td>OpenJ9 optthruput GC — Durchsatz-optimiert</td></tr>
-     *   <tr><td>P08-openj9-optavgpause</td><td>OPENJ9</td><td>openj9</td>
-     *       <td>OpenJ9 optavgpause GC — Pausen-optimiert</td></tr>
-     *   <tr><td>P09-hotspot-heap-256m</td><td>HOTSPOT</td><td>jvm</td>
-     *       <td>G1GC mit 256 MB Heap — Speicher-limitiert</td></tr>
-     *   <tr><td>P10-openj9-heap-256m</td><td>OPENJ9</td><td>openj9</td>
-     *       <td>OpenJ9 mit 256 MB Heap — Speicher-limitiert</td></tr>
-     *   <tr><td>P11-hotspot-cds</td><td>HOTSPOT</td><td>jvm-cds</td>
-     *       <td>HotSpot mit Dynamic CDS — Startup-optimiert</td></tr>
-     *   <tr><td>P12-graalvm-jit</td><td>HOTSPOT</td><td>graalvm-jit</td>
-     *       <td>GraalVM JIT-Compiler (JVMCI) — optimierte Codegenerierung</td></tr>
-     * </table>
-     *
-     * @return Benchmark-Plan mit den 12 Laufzeitprofilen
-     */
-    public static BenchmarkPlan profilePlan() {
-        String imgJvm      = "tfl4-ek-bench:jvm";
-        String imgOpenj9   = "tfl4-ek-bench:openj9";
-        String imgNative   = "tfl4-ek-bench:native";
-        String imgCds      = "tfl4-ek-bench:jvm-cds";
-        String imgGraalJit = "tfl4-ek-bench:graalvm-jit";
-
-        return new BenchmarkPlan(List.of(
+                // ==================== Laufzeitprofile ====================
                 new BenchmarkConfig(
                         "P01-hotspot-standard",
-                        imgJvm,
+                        img,
                         List.of("-XX:+UseG1GC", "-XX:MaxRAMPercentage=75"),
-                        RuntimeType.HOTSPOT
+                        RuntimeType.HOTSPOT,
+                        "Laufzeitprofil",
+                        "HotSpot"
                 ),
                 new BenchmarkConfig(
                         "P02-hotspot-fast-startup",
-                        imgJvm,
+                        img,
                         List.of("-XX:+UseG1GC", "-XX:TieredStopAtLevel=1", "-XX:MaxRAMPercentage=75"),
-                        RuntimeType.HOTSPOT
+                        RuntimeType.HOTSPOT,
+                        "Laufzeitprofil",
+                        "HotSpot"
                 ),
                 new BenchmarkConfig(
                         "P03-hotspot-low-latency",
-                        imgJvm,
+                        img,
                         List.of("-XX:+UseZGC", "-XX:MaxRAMPercentage=75"),
-                        RuntimeType.HOTSPOT
+                        RuntimeType.HOTSPOT,
+                        "Laufzeitprofil",
+                        "HotSpot"
                 ),
                 new BenchmarkConfig(
                         "P04-openj9-low-memory",
                         imgOpenj9,
                         List.of("-XX:MaxRAMPercentage=75"),
-                        RuntimeType.OPENJ9
-                ),
-                new BenchmarkConfig(
-                        "P05-native",
-                        imgNative,
-                        List.of(),
-                        RuntimeType.NATIVE
+                        RuntimeType.OPENJ9,
+                        "Laufzeitprofil",
+                        "OpenJ9"
                 ),
                 new BenchmarkConfig(
                         "P06-openj9-balanced",
                         imgOpenj9,
                         List.of("-Xgcpolicy:balanced", "-XX:MaxRAMPercentage=75"),
-                        RuntimeType.OPENJ9
+                        RuntimeType.OPENJ9,
+                        "Laufzeitprofil",
+                        "OpenJ9"
                 ),
                 new BenchmarkConfig(
                         "P07-openj9-optthruput",
                         imgOpenj9,
                         List.of("-Xgcpolicy:optthruput", "-XX:MaxRAMPercentage=75"),
-                        RuntimeType.OPENJ9
+                        RuntimeType.OPENJ9,
+                        "Laufzeitprofil",
+                        "OpenJ9"
                 ),
                 new BenchmarkConfig(
                         "P08-openj9-optavgpause",
                         imgOpenj9,
                         List.of("-Xgcpolicy:optavgpause", "-XX:MaxRAMPercentage=75"),
-                        RuntimeType.OPENJ9
+                        RuntimeType.OPENJ9,
+                        "Laufzeitprofil",
+                        "OpenJ9"
                 ),
                 new BenchmarkConfig(
                         "P09-hotspot-heap-256m",
-                        imgJvm,
+                        img,
                         List.of("-XX:+UseG1GC", "-Xmx256m"),
-                        RuntimeType.HOTSPOT
+                        RuntimeType.HOTSPOT,
+                        "Laufzeitprofil",
+                        "HotSpot"
                 ),
                 new BenchmarkConfig(
                         "P10-openj9-heap-256m",
                         imgOpenj9,
                         List.of("-Xmx256m"),
-                        RuntimeType.OPENJ9
+                        RuntimeType.OPENJ9,
+                        "Laufzeitprofil",
+                        "OpenJ9"
                 ),
                 new BenchmarkConfig(
                         "P11-hotspot-cds",
                         imgCds,
                         List.of("-XX:+UseG1GC", "-XX:MaxRAMPercentage=75"),
-                        RuntimeType.HOTSPOT
+                        RuntimeType.HOTSPOT,
+                        "Laufzeitprofil",
+                        "CDS"
                 ),
                 new BenchmarkConfig(
                         "P12-graalvm-jit",
                         imgGraalJit,
                         List.of("-XX:+UseG1GC", "-XX:MaxRAMPercentage=75"),
-                        RuntimeType.HOTSPOT
+                        RuntimeType.HOTSPOT,
+                        "Laufzeitprofil",
+                        "GraalVM JIT"
                 )
         ));
+    }
+
+    /**
+     * Erzeugt einen Plan mit nur den Laufzeitprofilen (P01–P04, P06–P12).
+     *
+     * <p>Enthaelt 11 standardisierte Profile, die verschiedene JVM-Implementierungen
+     * und Laufzeitmodelle vergleichen. P05-native ist entfernt, da GraalVM Native Image
+     * ohne Reachability-Metadata nicht lauffaehig ist.
+     *
+     * @return Benchmark-Plan mit 11 Laufzeitprofilen
+     */
+    public static BenchmarkPlan profilePlan() {
+        BenchmarkPlan full = defaultPlan();
+        List<BenchmarkConfig> profiles = full.configs.stream()
+                .filter(c -> c.name().matches("P\\d{2}-.*"))
+                .toList();
+        return new BenchmarkPlan(profiles);
     }
 
     /**
@@ -381,7 +435,8 @@ public class BenchmarkPlan {
         List<BenchmarkConfig> updated = configs.stream()
                 .map(c -> {
                     String ebicsImage = toEbicsImage(c.dockerImage());
-                    return new BenchmarkConfig(c.name(), ebicsImage, c.jvmArgs(), c.runtimeType());
+                    return new BenchmarkConfig(c.name(), ebicsImage, c.jvmArgs(), c.runtimeType(),
+                            c.category(), c.runtimeModel());
                 })
                 .toList();
         return new BenchmarkPlan(updated);
@@ -400,14 +455,15 @@ public class BenchmarkPlan {
     }
 
     /**
-     * Erzeugt einen kombinierten Plan: erst Default-Plan (20 Flag-Analyse-Configs),
-     * dann Profile-Plan (12 Laufzeitprofile).
+     * Erzeugt den kombinierten Plan: identisch mit {@link #defaultPlan()},
+     * da der Plan jetzt alle Konfigurationen vereint.
      *
-     * @return kombinierter Plan mit 32 Konfigurationen
+     * <p>Diese Methode existiert fuer Rueckwaertskompatibilitaet mit BenchCli
+     * und Tests, die {@code combinedPlan()} aufrufen.
+     *
+     * @return vollstaendiger Plan mit 31 Konfigurationen
      */
     public static BenchmarkPlan combinedPlan() {
-        List<BenchmarkConfig> combined = new ArrayList<>(defaultPlan().configs);
-        combined.addAll(profilePlan().configs);
-        return new BenchmarkPlan(combined);
+        return defaultPlan();
     }
 }

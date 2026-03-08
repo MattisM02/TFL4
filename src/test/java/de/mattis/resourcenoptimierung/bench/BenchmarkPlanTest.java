@@ -22,8 +22,8 @@ class BenchmarkPlanTest {
     @Test
     void defaultPlan_containsTwentyConfigs() {
         BenchmarkPlan plan = BenchmarkPlan.defaultPlan();
-        assertEquals(20, plan.configs.size(),
-                "Default plan should contain 20 configs (5 GC + 3 G1-tuning + 2 JVM-interna + 2 cloud + 8 flag-combos)");
+        assertEquals(31, plan.configs.size(),
+                "Default plan should contain 31 configs (20 flag-analysis + 11 profiles)");
     }
 
     @Test
@@ -170,13 +170,13 @@ class BenchmarkPlanTest {
     }
 
     @Test
-    void defaultPlan_allUseSameImage() {
+    void defaultPlan_flagAnalysisUseSameImage() {
         BenchmarkPlan plan = BenchmarkPlan.defaultPlan();
-        long distinctImages = plan.configs.stream()
+        long distinctImages = plan.configs.subList(0, 20).stream()
                 .map(BenchmarkConfig::dockerImage)
                 .distinct()
                 .count();
-        assertEquals(1, distinctImages, "All default configs should use the same Docker image");
+        assertEquals(1, distinctImages, "All flag-analysis configs should use the same Docker image");
     }
 
     @Test
@@ -199,7 +199,7 @@ class BenchmarkPlanTest {
     @Test
     void customPlan_constructsCorrectly() {
         List<BenchmarkConfig> configs = List.of(
-                new BenchmarkConfig("custom", "myimage:latest", List.of("-Xmx256m"), RuntimeType.HOTSPOT)
+                new BenchmarkConfig("custom", "myimage:latest", List.of("-Xmx256m"), RuntimeType.HOTSPOT, "test-cat", "HotSpot")
         );
         BenchmarkPlan plan = new BenchmarkPlan(configs);
         assertEquals(1, plan.configs.size());
@@ -248,11 +248,11 @@ class BenchmarkPlanTest {
     // ==================== defaultPlan RuntimeType ====================
 
     @Test
-    void defaultPlan_allConfigsAreHotspot() {
+    void defaultPlan_flagAnalysisAllHotspot() {
         BenchmarkPlan plan = BenchmarkPlan.defaultPlan();
-        for (BenchmarkConfig cfg : plan.configs) {
+        for (BenchmarkConfig cfg : plan.configs.subList(0, 20)) {
             assertEquals(RuntimeType.HOTSPOT, cfg.runtimeType(),
-                    "Config '" + cfg.name() + "' should be HOTSPOT in defaultPlan");
+                    "Config '" + cfg.name() + "' should be HOTSPOT in flag-analysis portion");
         }
     }
 
@@ -278,8 +278,8 @@ class BenchmarkPlanTest {
     @Test
     void profilePlan_containsTwelveProfiles() {
         BenchmarkPlan plan = BenchmarkPlan.profilePlan();
-        assertEquals(12, plan.configs.size(),
-                "Profile plan should contain 12 profiles (P01-P12)");
+        assertEquals(11, plan.configs.size(),
+                "Profile plan should contain 11 profiles (P01-P04 + P06-P12)");
     }
 
     @Test
@@ -333,15 +333,6 @@ class BenchmarkPlanTest {
         BenchmarkConfig p04 = findConfig(plan, "P04-openj9-low-memory");
         assertEquals(RuntimeType.OPENJ9, p04.runtimeType());
         assertEquals("tfl4-ek-bench:openj9", p04.dockerImage());
-    }
-
-    @Test
-    void profilePlan_p05Native() {
-        BenchmarkPlan plan = BenchmarkPlan.profilePlan();
-        BenchmarkConfig p05 = findConfig(plan, "P05-native");
-        assertEquals(RuntimeType.NATIVE, p05.runtimeType());
-        assertEquals("tfl4-ek-bench:native", p05.dockerImage());
-        assertTrue(p05.jvmArgs().isEmpty());
     }
 
     @Test
@@ -407,7 +398,6 @@ class BenchmarkPlanTest {
         BenchmarkPlan plan = BenchmarkPlan.profilePlan();
         assertTrue(plan.configs.stream().anyMatch(c -> c.runtimeType() == RuntimeType.HOTSPOT));
         assertTrue(plan.configs.stream().anyMatch(c -> c.runtimeType() == RuntimeType.OPENJ9));
-        assertTrue(plan.configs.stream().anyMatch(c -> c.runtimeType() == RuntimeType.NATIVE));
     }
 
     // ==================== withEbicsImages ====================
@@ -426,14 +416,6 @@ class BenchmarkPlanTest {
         BenchmarkPlan ebics = plan.withEbicsImages();
         BenchmarkConfig p04 = findConfig(ebics, "P04-openj9-low-memory");
         assertEquals("tfl4-ek-bench:openj9-ek", p04.dockerImage());
-    }
-
-    @Test
-    void withEbicsImages_mapsNativeToNativeEk() {
-        BenchmarkPlan plan = BenchmarkPlan.profilePlan();
-        BenchmarkPlan ebics = plan.withEbicsImages();
-        BenchmarkConfig p05 = findConfig(ebics, "P05-native");
-        assertEquals("tfl4-ek-bench:native-ek", p05.dockerImage());
     }
 
     @Test
@@ -514,8 +496,8 @@ class BenchmarkPlanTest {
     @Test
     void combinedPlan_contains32Configs() {
         BenchmarkPlan plan = BenchmarkPlan.combinedPlan();
-        assertEquals(32, plan.configs.size(),
-                "Combined plan should contain 32 configs (20 default + 12 profiles)");
+        assertEquals(31, plan.configs.size(),
+                "Combined plan should contain 31 configs (unified plan)");
     }
 
     @Test
@@ -536,7 +518,7 @@ class BenchmarkPlanTest {
     @Test
     void combinedPlan_endsWithP12() {
         BenchmarkPlan plan = BenchmarkPlan.combinedPlan();
-        assertEquals("P12-graalvm-jit", plan.configs.get(31).name(),
+        assertEquals("P12-graalvm-jit", plan.configs.get(30).name(),
                 "Combined plan should end with P12");
     }
 

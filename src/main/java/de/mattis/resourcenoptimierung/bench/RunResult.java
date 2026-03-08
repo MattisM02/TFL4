@@ -35,6 +35,8 @@ import java.util.List;
  * @param repetition 1-basierte Wiederholungsnummer (1..N)
  * @param gcSummary aggregierte GC-Kennzahlen (null bei Native-Images oder wenn kein GC-Log vorhanden)
  * @param gcLogPath Pfad zur gespeicherten GC-Log-Datei (null wenn nicht gespeichert)
+ * @param category Analyse-Kategorie (z.B. "GC-Vergleich", "Laufzeitprofil") — aus BenchmarkConfig
+ * @param runtimeModel Laufzeitmodell (z.B. "HotSpot", "OpenJ9", "CDS") — aus BenchmarkConfig
  */
 public record RunResult(
         String configName,
@@ -56,4 +58,6 @@ public record RunResult(
         List<DockerStatSample> dockerPostSamples,
         int repetition,
         GcSummary gcSummary,
-        String gcLogPath) { }
+        String gcLogPath,
+        String category,
+        String runtimeModel) { }

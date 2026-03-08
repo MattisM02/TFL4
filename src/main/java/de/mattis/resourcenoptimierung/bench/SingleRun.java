@@ -157,13 +157,12 @@ public class SingleRun {
             // 3) Proof: kurze Start-Logs speichern (best-effort)
             //    Zweck: Nachvollziehbarkeit, ob Flags "ankamen" oder ob Startprobleme sichtbar sind.
             //    Best-effort, weil Logs nicht immer verfuegbar/sofort da sind.
+            //    Fuer alle Laufzeittypen erfasst (auch NATIVE), damit Crash-Logs sichtbar werden.
             String startupLogSnippet = null;
-            if (cfg.runtimeType().isJvm()) {
-                try {
-                    String logs = dockerLogsTail(containerId, 200);
-                    startupLogSnippet = trimSnippet(logs, 2000);
-                } catch (Exception ignored) {}
-            }
+            try {
+                String logs = dockerLogsTail(containerId, 200);
+                startupLogSnippet = trimSnippet(logs, 2000);
+            } catch (Exception ignored) {}
 
             // 4) Readiness (robust & workload-konsistent)
             //    Wartet, bis der Service "ready" ist.
@@ -178,11 +177,19 @@ public class SingleRun {
             //    Das bedeutet: readinessMs enthaelt dann EK-Init + HPB-Latenz.
             //    Fuer EBICS ist das beabsichtigt, da der Service erst nach erfolgreicher
             //    EK-Initialisierung wirklich "ready" ist.
+            //
+            //    Container-Alive-Check: Erkennt fruehzeitig, wenn der Container
+            //    bereits beendet ist (z.B. Crash bei NATIVE ohne Reachability-Metadata),
+            //    statt das volle 120s Timeout abzuwarten.
             ReadinessProber prober = new ReadinessProber();
+
+            // Container-Alive-Check: prueft via "docker inspect" ob der Container noch laeuft
+            final String cid = containerId;
+            ReadinessProber.ContainerAliveCheck aliveCheck = () -> isContainerRunning(cid);
 
             String path = workloadPath(); // z.B. "/json" oder "/alloc"
             ReadinessProber.ReadinessResult rr =
-                    prober.waitUntilReady("http://localhost:" + port, readinessTimeout, path);
+                    prober.waitUntilReady("http://localhost:" + port, readinessTimeout, path, aliveCheck);
 
             // readinessMs = Zeit von VOR docker run bis ready (inkl. Container-Startup)
             long readinessMs = (System.nanoTime() - startNanos) / 1_000_000;
@@ -290,7 +297,9 @@ public class SingleRun {
                     dockerPostSamples,
                     repetition,
                     gcSummary,
-                    gcLogPath
+                    gcLogPath,
+                    cfg.category(),
+                    cfg.runtimeModel()
             );
 
             return result;
@@ -628,6 +637,27 @@ public class SingleRun {
         try {
             exec(List.of("docker", "rm", "-f", containerId), Duration.ofSeconds(10));
         } catch (Exception ignored) {}
+    }
+
+    /**
+     * Prueft, ob ein Container noch im Status "running" ist.
+     *
+     * Nutzt "docker inspect --format={{.State.Running}}" fuer einen schnellen Check.
+     * Wird waehrend des Readiness-Pollings aufgerufen, um fruehzeitig zu erkennen,
+     * wenn der Container bereits beendet ist (z.B. Crash beim Start).
+     *
+     * @param containerId Container-ID
+     * @return true wenn der Container laeuft, false wenn beendet oder Pruefung fehlschlaegt
+     */
+    private static boolean isContainerRunning(String containerId) {
+        try {
+            ExecResult res = exec(List.of(
+                    "docker", "inspect", "--format", "{{.State.Running}}", containerId
+            ), Duration.ofSeconds(5));
+            return res.exitCode == 0 && res.stdout.trim().equalsIgnoreCase("true");
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     /**

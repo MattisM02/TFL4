@@ -32,7 +32,7 @@ import java.util.List;
  * - --configName:              Name fuer die CLI-Konfiguration (default: "cli-custom")
  * - --dockerImage:             Docker-Image fuer den CLI-Run (default: "tfl4-ek-bench:jvm")
  * - --skipTravicLink:          TravicLink docker-compose NICHT starten (externer Server erwartet)
-     * - --profiles:                Nur Laufzeitprofile statt kombiniertem Plan (12 Profile P01-P12 statt 20+12=32 Configs)
+     * - --profiles:                Nur Laufzeitprofile statt vollstaendigem Plan (11 Profile P01-P04+P06-P12 statt 31 Configs)
  * - --rebuild:                 Erzwingt Neuaufbau von Maven-JAR und Docker-Images (auch wenn vorhanden)
  * - --merge-excel:             Alle CSVs aus bench-results/ in ein Excel zusammenfuehren (kein Benchmark)
  * - --quick:                   Schnelldurchlauf (10 Warmup, 30 Mess-Requests, 1 Wiederholung).
@@ -170,8 +170,8 @@ public class BenchCli {
     /**
      * Bestimmt den Benchmark-Plan.
      * Wenn --jvmArgs gesetzt ist, wird ein Plan mit einer einzelnen Konfiguration erzeugt.
-     * Sonst wird der kombinierte Plan (20 Flag-Analyse + 12 Laufzeitprofile) verwendet.
-     * Mit --profiles wird nur der Profil-Plan (12 Profile) verwendet.
+     * Sonst wird der vollstaendige Plan (31 Konfigurationen) verwendet.
+     * Mit --profiles werden nur die Laufzeitprofile (11 Profile P01-P04+P06-P12) verwendet.
      *
      * Fuer EBICS-Szenarien werden die Docker-Images automatisch auf die EK-Varianten
      * umgestellt (Suffix-Konvention: Tag + "-ek"), sofern nicht per --dockerImage
@@ -187,10 +187,10 @@ public class BenchCli {
 
         String jvmArgsRaw = findArgValue(args, "--jvmArgs");
         if (jvmArgsRaw == null) {
-            // Entscheidung: nur Profile (--profiles) oder kombinierter Plan (default)
+            // Entscheidung: nur Profile (--profiles) oder vollstaendiger Plan (default)
             BenchmarkPlan plan = hasFlag(args, "--profiles")
                     ? BenchmarkPlan.profilePlan()
-                    : BenchmarkPlan.combinedPlan();
+                    : BenchmarkPlan.defaultPlan();
             if (ebics) {
                 plan = plan.withEbicsImages();
             }
@@ -204,7 +204,8 @@ public class BenchCli {
         if (dockerImage == null) dockerImage = defaultImage;
 
         List<String> jvmArgs = parseJvmArgs(jvmArgsRaw);
-        BenchmarkConfig config = new BenchmarkConfig(configName, dockerImage, jvmArgs, RuntimeType.HOTSPOT);
+        BenchmarkConfig config = new BenchmarkConfig(configName, dockerImage, jvmArgs, RuntimeType.HOTSPOT,
+                "CLI", "HotSpot");
         return new BenchmarkPlan(List.of(config));
     }
 

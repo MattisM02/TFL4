@@ -1,4 +1,4 @@
-FROM ghcr.io/graalvm/jdk:25
+FROM ghcr.io/graalvm/jdk-community:25
 
 WORKDIR /app
 

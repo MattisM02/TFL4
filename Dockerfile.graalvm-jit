@@ -1,4 +1,4 @@
-FROM ghcr.io/graalvm/jdk:25
+FROM ghcr.io/graalvm/jdk-community:25
 WORKDIR /app
 COPY target/jvm-optim-demo-0.0.1-SNAPSHOT.jar app.jar
 EXPOSE 8080

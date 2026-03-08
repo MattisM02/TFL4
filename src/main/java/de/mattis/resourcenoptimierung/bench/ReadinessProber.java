@@ -15,8 +15,26 @@ import java.time.Duration;
  * Readiness bedeutet hier pragmatisch: Ein HTTP-GET liefert Status 200.
  * Je nach Endpoint ist das semantisch genauer (Actuator Readiness) oder nur
  * ein Fallback (Workload-Endpoint).
+ *
+ * Optional kann ein {@link ContainerAliveCheck} uebergeben werden, um bei jedem
+ * Poll-Zyklus zu pruefen, ob der Container noch laeuft. Wenn der Container
+ * bereits beendet ist (z.B. Crash beim Start), wird sofort abgebrochen,
+ * statt das volle Timeout abzuwarten.
  */
 public final class ReadinessProber {
+
+    /**
+     * Callback-Interface zur Pruefung, ob der Container noch lebt.
+     * Wird waehrend des Pollings aufgerufen, um fruehzeitig abzubrechen.
+     */
+    @FunctionalInterface
+    public interface ContainerAliveCheck {
+        /**
+         * Prueft, ob der Container noch laeuft.
+         * @return true wenn der Container laeuft, false wenn er beendet ist
+         */
+        boolean isAlive();
+    }
 
     /**
      * HTTP-Client für Polling-Requests mit kurzen Timeouts.
@@ -56,16 +74,37 @@ public final class ReadinessProber {
      * @throws Exception wenn das Timeout abläuft oder ein unerwarteter Fehler auftritt
      */
     public ReadinessResult waitUntilReady(String baseUrl, Duration timeout, String fallbackPath) throws Exception {
+        return waitUntilReady(baseUrl, timeout, fallbackPath, null);
+    }
+
+    /**
+     * Wartet bis der Service unter baseUrl bereit ist oder das Timeout abläuft.
+     * Prueft optional bei jedem Poll-Zyklus, ob der Container noch lebt.
+     *
+     * Checks in Reihenfolge:
+     * - /actuator/health/readiness
+     * - /actuator/health
+     * - fallbackPath (z.B. /json oder /alloc)
+     *
+     * @param baseUrl Basis-URL des Services (z.B. "http://localhost:8080")
+     * @param timeout Gesamt-Timeout
+     * @param fallbackPath Pfad oder vollständige URL für den letzten Fallback
+     * @param aliveCheck optionaler Check, ob der Container noch laeuft (null = kein Check)
+     * @return ReadinessResult mit verwendetem Check und Dauer
+     * @throws Exception wenn das Timeout abläuft, der Container beendet ist oder ein unerwarteter Fehler auftritt
+     */
+    public ReadinessResult waitUntilReady(String baseUrl, Duration timeout, String fallbackPath,
+                                          ContainerAliveCheck aliveCheck) throws Exception {
         long start = System.nanoTime();
 
         // 1) /actuator/health/readiness
-        if (pollUntil200(baseUrl + "/actuator/health/readiness", timeout)) {
+        if (pollUntil200(baseUrl + "/actuator/health/readiness", timeout, aliveCheck)) {
             return new ReadinessResult(ReadinessCheckUsed.ACTUATOR_READINESS, elapsedMs(start));
         }
 
         // 2) /actuator/health (nur wenn noch Zeit übrig ist)
         Duration remaining = remaining(timeout, start);
-        if (!remaining.isNegative() && pollUntil200(baseUrl + "/actuator/health", remaining)) {
+        if (!remaining.isNegative() && pollUntil200(baseUrl + "/actuator/health", remaining, aliveCheck)) {
             return new ReadinessResult(ReadinessCheckUsed.ACTUATOR_HEALTH, elapsedMs(start));
         }
 
@@ -73,7 +112,7 @@ public final class ReadinessProber {
         remaining = remaining(timeout, start);
         if (!remaining.isNegative()) {
             String fallbackUrl = toUrl(baseUrl, fallbackPath);
-            if (pollUntil200(fallbackUrl, remaining)) {
+            if (pollUntil200(fallbackUrl, remaining, aliveCheck)) {
                 return new ReadinessResult(ReadinessCheckUsed.WORKLOAD_UNTIL_200, elapsedMs(start));
             }
         }
@@ -109,19 +148,23 @@ public final class ReadinessProber {
 
     /**
      * Pollt eine URL, bis Status 200 zurückkommt oder das Timeout erreicht ist.
+     * Prueft optional bei jedem Zyklus, ob der Container noch lebt.
      *
      * Abbruchregeln:
      * - 200: ready
      * - 401/403/404: Endpoint nicht nutzbar, sofort abbrechen (damit Fallback weitergehen kann)
+     * - Container nicht mehr am Leben: sofort RuntimeException
      * - sonst: weiter pollen bis Timeout
      *
      * @param url vollständige URL
      * @param timeout Zeitfenster für das Polling
+     * @param aliveCheck optionaler Check, ob der Container noch laeuft (null = kein Check)
      * @return true, wenn 200 erreicht wurde, sonst false
-     * @throws Exception wenn der Sleep unterbrochen wird
+     * @throws Exception wenn der Sleep unterbrochen wird oder der Container beendet ist
      */
-    private boolean pollUntil200(String url, Duration timeout) throws Exception {
+    private boolean pollUntil200(String url, Duration timeout, ContainerAliveCheck aliveCheck) throws Exception {
         long deadlineNanos = System.nanoTime() + timeout.toNanos();
+        int pollsSinceLastAliveCheck = 0;
 
         while (System.nanoTime() < deadlineNanos) {
             int code = tryGetStatus(url);
@@ -130,6 +173,17 @@ public final class ReadinessProber {
             // Fallback, wenn Endpoint nicht verfügbar/gesichert ist
             if (code == 401 || code == 403 || code == 404) {
                 return false;
+            }
+
+            // Container-Alive-Check alle ~10 Polls (~1.5s) um Docker-CLI-Overhead zu begrenzen
+            pollsSinceLastAliveCheck++;
+            if (aliveCheck != null && pollsSinceLastAliveCheck >= 10) {
+                pollsSinceLastAliveCheck = 0;
+                if (!aliveCheck.isAlive()) {
+                    throw new RuntimeException(
+                            "Container exited during readiness polling (detected via container-status check). " +
+                            "The container likely crashed at startup.");
+                }
             }
 
             Thread.sleep(150);

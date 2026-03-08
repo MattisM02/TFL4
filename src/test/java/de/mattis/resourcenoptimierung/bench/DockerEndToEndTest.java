@@ -95,7 +95,9 @@ class DockerEndToEndTest {
                 "e2e-test",
                 DOCKER_IMAGE,
                 List.of(),  // keine Extra-JVM-Flags
-                RuntimeType.HOTSPOT
+                RuntimeType.HOTSPOT,
+                "test-cat",
+                "HotSpot"
         );
 
         // Kleines n fuer schnellen Durchlauf
@@ -184,7 +186,9 @@ class DockerEndToEndTest {
                 "e2e-alloc-test",
                 DOCKER_IMAGE,
                 List.of(),
-                RuntimeType.HOTSPOT
+                RuntimeType.HOTSPOT,
+                "test-cat",
+                "HotSpot"
         );
 
         int workloadN = 1000;
@@ -211,7 +215,9 @@ class DockerEndToEndTest {
                 "e2e-flags-test",
                 DOCKER_IMAGE,
                 List.of("-XX:-UseCompressedOops"),
-                RuntimeType.HOTSPOT
+                RuntimeType.HOTSPOT,
+                "test-cat",
+                "HotSpot"
         );
 
         int workloadN = 50;
@@ -249,7 +255,9 @@ class DockerEndToEndTest {
                 "e2e-concurrent-test",
                 DOCKER_IMAGE,
                 List.of(),
-                RuntimeType.HOTSPOT
+                RuntimeType.HOTSPOT,
+                "test-cat",
+                "HotSpot"
         );
 
         int workloadN = 50;

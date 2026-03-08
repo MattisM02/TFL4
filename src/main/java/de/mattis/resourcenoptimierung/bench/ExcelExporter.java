@@ -215,7 +215,7 @@ public final class ExcelExporter {
         sheet.setDefaultColumnWidth(14);
 
         String[] headers = {
-                "Config", "Szenario", "JVM-Flags", "Docker-Image",
+                "Config", "Szenario", "JVM-Flags", "Docker-Image", "Kategorie", "Laufzeitmodell",
                 "Readiness (ms)", "First Req (s)",
                 "p50 (s)", "p95 (s)", "p99 (s)", "Mean (s)", "Latenz-Count",
                 "Messzeit (min)", "Throughput (req/s)",
@@ -230,7 +230,7 @@ public final class ExcelExporter {
         XSSFRow sectionRow = sheet.createRow(0);
         sectionRow.setHeightInPoints(22);
         writeSectionHeaders(sectionRow, s, new String[]{
-                "Konfiguration", "", "", "",
+                "Konfiguration", "", "", "", "", "",
                 "Startup", "",
                 "Latenzen", "", "", "", "",
                 "Durchsatz", "",
@@ -240,15 +240,15 @@ public final class ExcelExporter {
                 "Messprofil", "", "", "",
                 "Meta", "", ""
         });
-        mergeIfValid(sheet, 0, 0, 0, 3);    // Konfiguration  (4 cols)
-        mergeIfValid(sheet, 0, 0, 4, 5);    // Startup         (2 cols)
-        mergeIfValid(sheet, 0, 0, 6, 10);   // Latenzen        (5 cols)
-        mergeIfValid(sheet, 0, 0, 11, 12);  // Durchsatz       (2 cols)
-        mergeIfValid(sheet, 0, 0, 13, 15);  // Docker (LOAD)   (3 cols)
-        // col 16 = Docker (IDLE) – single col, no merge
-        mergeIfValid(sheet, 0, 0, 17, 22);  // GC-Verhalten    (6 cols)
-        mergeIfValid(sheet, 0, 0, 23, 26);  // Messprofil      (4 cols)
-        mergeIfValid(sheet, 0, 0, 27, 29);  // Meta            (3 cols)
+        mergeIfValid(sheet, 0, 0, 0, 5);    // Konfiguration  (6 cols)
+        mergeIfValid(sheet, 0, 0, 6, 7);    // Startup         (2 cols)
+        mergeIfValid(sheet, 0, 0, 8, 12);   // Latenzen        (5 cols)
+        mergeIfValid(sheet, 0, 0, 13, 14);  // Durchsatz       (2 cols)
+        mergeIfValid(sheet, 0, 0, 15, 17);  // Docker (LOAD)   (3 cols)
+        // col 18 = Docker (IDLE) – single col, no merge
+        mergeIfValid(sheet, 0, 0, 19, 24);  // GC-Verhalten    (6 cols)
+        mergeIfValid(sheet, 0, 0, 25, 28);  // Messprofil      (4 cols)
+        mergeIfValid(sheet, 0, 0, 29, 31);  // Meta            (3 cols)
 
         writeHeaderRow(sheet, 1, headers, s);
 
@@ -268,6 +268,8 @@ public final class ExcelExporter {
             setCell(row, c++, r.scenario() == null ? "" : r.scenario().name(), pick(s, i, SK.TEXT));
             setCell(row, c++, normalizeFlags(r.effectiveJavaToolOptions()),   pick(s, i, SK.TEXT));
             setCell(row, c++, r.dockerImage(),                               pick(s, i, SK.TEXT));
+            setCell(row, c++, r.category() == null ? "" : r.category(),  pick(s, i, SK.TEXT));
+            setCell(row, c++, r.runtimeModel() == null ? "" : r.runtimeModel(), pick(s, i, SK.TEXT));
 
             setNum(row, c++, r.readinessMs(),          pick(s, i, SK.INT));
             setNum(row, c++, r.firstSeconds(),         pick(s, i, SK.DEC4));
@@ -318,14 +320,14 @@ public final class ExcelExporter {
         sheet.createFreezePane(1, 2);
 
         // CPU%-Header-Kommentar (Erklaerung fuer Docker >100% Artefakt)
-        addCellComment(sheet, 1, 13, CPU_COMMENT);
+        addCellComment(sheet, 1, 15, CPU_COMMENT);
 
-        // Bedingte Farbskala: Latenzen (p50=6, p95=7, p99=8)
-        addColorScale(sheet, 2, 1 + results.size(), 6, 8);
-        // Bedingte Farbskala: Ressourcen (CPU% LOAD=13 bis Mem% IDLE=16)
-        addColorScale(sheet, 2, 1 + results.size(), 13, 16);
-        // Bedingte Farbskala: GC Max Pause=20, GC Overhead=21
-        addColorScale(sheet, 2, 1 + results.size(), 20, 21);
+        // Bedingte Farbskala: Latenzen (p50=8, p95=9, p99=10)
+        addColorScale(sheet, 2, 1 + results.size(), 8, 10);
+        // Bedingte Farbskala: Ressourcen (CPU% LOAD=15 bis Mem% IDLE=18)
+        addColorScale(sheet, 2, 1 + results.size(), 15, 18);
+        // Bedingte Farbskala: GC Max Pause=22, GC Overhead=23
+        addColorScale(sheet, 2, 1 + results.size(), 22, 23);
 
         autoSizeColumns(sheet, headers.length);
     }
@@ -761,7 +763,7 @@ public final class ExcelExporter {
         sheet.setDefaultColumnWidth(14);
 
         String[] headers = {
-                "Timestamp", "Config", "Szenario", "JVM-Flags",
+                "Timestamp", "Config", "Szenario", "JVM-Flags", "Kategorie", "Laufzeitmodell",
                 "Readiness (ms)", "First Req (s)",
                 "p50 (s)", "p95 (s)", "p99 (s)", "Mean (s)",
                 "Messzeit (min)", "Throughput (req/s)",
@@ -782,6 +784,8 @@ public final class ExcelExporter {
             setCell(row, c++, r.configName(),      pick(s, i, SK.TEXT));
             setCell(row, c++, r.scenario(),        pick(s, i, SK.TEXT));
             setCell(row, c++, r.jvmFlags(),        pick(s, i, SK.TEXT));
+            setCell(row, c++, r.category() == null ? "" : r.category(),  pick(s, i, SK.TEXT));
+            setCell(row, c++, r.runtimeModel() == null ? "" : r.runtimeModel(), pick(s, i, SK.TEXT));
             setNum(row, c++, r.readinessMs(),      pick(s, i, SK.INT));
             setNum(row, c++, r.firstSeconds(),     pick(s, i, SK.DEC4));
             setNum(row, c++, r.p50(),              pick(s, i, SK.DEC4));
@@ -812,15 +816,15 @@ public final class ExcelExporter {
         sheet.createFreezePane(2, 1);
 
         // CPU%-Header-Kommentar
-        addCellComment(sheet, 0, 12, CPU_COMMENT);
+        addCellComment(sheet, 0, 14, CPU_COMMENT);
 
-        // Farbskala: Latenzen (p50=6 bis Mean=9)
+        // Farbskala: Latenzen (p50=8 bis Mean=11)
         if (rows.size() >= 2) {
-            addColorScale(sheet, 1, rows.size(), 6, 9);
-            // Farbskala: Ressourcen (CPU%=12 bis Mem% max=14)
-            addColorScale(sheet, 1, rows.size(), 12, 14);
-            // Farbskala: GC Max Pause=18, GC Overhead=19
-            addColorScale(sheet, 1, rows.size(), 18, 19);
+            addColorScale(sheet, 1, rows.size(), 8, 11);
+            // Farbskala: Ressourcen (CPU%=14 bis Mem% max=16)
+            addColorScale(sheet, 1, rows.size(), 14, 16);
+            // Farbskala: GC Max Pause=20, GC Overhead=21
+            addColorScale(sheet, 1, rows.size(), 20, 21);
         }
         autoSizeColumns(sheet, headers.length);
     }
@@ -1238,7 +1242,8 @@ public final class ExcelExporter {
             double cpuLoadAvg, double memLoadAvg, double memLoadMax,
             int gcCount, int gcFullCount, double gcTotalPauseMs,
             double gcMaxPauseMs, double gcOverheadPercent, double gcPeakHeapAfterMb,
-            int repetition
+            int repetition,
+            String category, String runtimeModel
     ) {}
 
     static List<CsvRow> parseCsv(Path csvFile, String timestamp) throws IOException {
@@ -1284,7 +1289,9 @@ public final class ExcelExporter {
                         getDoubleVal(vals, idx, "gcMaxPauseMs"),
                         getDoubleVal(vals, idx, "gcOverheadPercent"),
                         getDoubleVal(vals, idx, "gcPeakHeapAfterMb"),
-                        getIntVal(vals, idx, "repetition")
+                        getIntVal(vals, idx, "repetition"),
+                        getVal(vals, idx, "category"),
+                        getVal(vals, idx, "runtimeModel")
                 ));
             }
         }
@@ -1647,9 +1654,6 @@ public final class ExcelExporter {
             addCTErrorBars(ctSer.addNewErrBars(), sheet, dataRows, sd.ciColumn());
         }
 
-        // Runtime-Einfaerbung: bei mehreren Laufzeittypen Balken per CTDPt einfaerben
-        applyRuntimeColors(ctBar, runtimes);
-
         if (showLegend) {
             XDDFChartLegend legend = chart.getOrAddLegend();
             legend.setPosition(LegendPosition.BOTTOM);
@@ -1731,9 +1735,6 @@ public final class ExcelExporter {
             CTBarSer ctSer = ctBar.getSerList().get(i);
             addCTErrorBars(ctSer.addNewErrBars(), sheet, dataRows, sd.ciColumn());
         }
-
-        // Runtime-Einfaerbung
-        applyRuntimeColors(ctBar, runtimes);
 
         if (series.length > 1) {
             XDDFChartLegend legend = chart.getOrAddLegend();

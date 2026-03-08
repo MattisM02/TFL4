@@ -81,21 +81,23 @@ class DockerImageBuilderTest {
     // ==================== collectUniqueImageTags ====================
 
     @Test
-    void collectTags_defaultPlan_returnsSingleTag() {
+    void collectTags_defaultPlan_returnsFourTags() {
         BenchmarkPlan plan = BenchmarkPlan.defaultPlan();
         Set<String> tags = DockerImageBuilder.collectUniqueImageTags(plan);
-        assertEquals(1, tags.size());
+        assertEquals(4, tags.size());
         assertTrue(tags.contains("tfl4-ek-bench:jvm"));
+        assertTrue(tags.contains("tfl4-ek-bench:openj9"));
+        assertTrue(tags.contains("tfl4-ek-bench:jvm-cds"));
+        assertTrue(tags.contains("tfl4-ek-bench:graalvm-jit"));
     }
 
     @Test
     void collectTags_profilePlan_returnsFiveTags() {
         BenchmarkPlan plan = BenchmarkPlan.profilePlan();
         Set<String> tags = DockerImageBuilder.collectUniqueImageTags(plan);
-        assertEquals(5, tags.size());
+        assertEquals(4, tags.size());
         assertTrue(tags.contains("tfl4-ek-bench:jvm"));
         assertTrue(tags.contains("tfl4-ek-bench:openj9"));
-        assertTrue(tags.contains("tfl4-ek-bench:native"));
         assertTrue(tags.contains("tfl4-ek-bench:jvm-cds"));
         assertTrue(tags.contains("tfl4-ek-bench:graalvm-jit"));
     }
@@ -104,10 +106,9 @@ class DockerImageBuilderTest {
     void collectTags_profilePlan_ebics_returnsFiveEkTags() {
         BenchmarkPlan plan = BenchmarkPlan.profilePlan().withEbicsImages();
         Set<String> tags = DockerImageBuilder.collectUniqueImageTags(plan);
-        assertEquals(5, tags.size());
+        assertEquals(4, tags.size());
         assertTrue(tags.contains("tfl4-ek-bench:jvm-ek"));
         assertTrue(tags.contains("tfl4-ek-bench:openj9-ek"));
-        assertTrue(tags.contains("tfl4-ek-bench:native-ek"));
         assertTrue(tags.contains("tfl4-ek-bench:jvm-cds-ek"));
         assertTrue(tags.contains("tfl4-ek-bench:graalvm-jit-ek"));
     }
@@ -121,16 +122,16 @@ class DockerImageBuilderTest {
 
     @Test
     void collectTags_duplicateImages_deduplicates() {
-        // Default plan: all 20 configs use the same image
+        // Default plan: 31 configs with 4 distinct images
         BenchmarkPlan plan = BenchmarkPlan.defaultPlan();
-        assertEquals(20, plan.configs.size(), "defaultPlan should have 20 configs");
+        assertEquals(31, plan.configs.size(), "defaultPlan should have 31 configs");
         Set<String> tags = DockerImageBuilder.collectUniqueImageTags(plan);
-        assertEquals(1, tags.size(), "20 configs with same image should yield 1 unique tag");
+        assertEquals(4, tags.size(), "31 configs with 4 distinct images should yield 4 unique tags");
     }
 
     @Test
     void collectTags_singleCustomConfig() {
-        BenchmarkConfig cfg = new BenchmarkConfig("test", "my-custom:image", List.of(), RuntimeType.HOTSPOT);
+        BenchmarkConfig cfg = new BenchmarkConfig("test", "my-custom:image", List.of(), RuntimeType.HOTSPOT, "test-cat", "HotSpot");
         BenchmarkPlan plan = new BenchmarkPlan(List.of(cfg));
         Set<String> tags = DockerImageBuilder.collectUniqueImageTags(plan);
         assertEquals(1, tags.size());
@@ -158,18 +159,20 @@ class DockerImageBuilderTest {
 
     @Test
     void allKnownTags_coveredByProfilePlanAndEbicsVariant() {
-        // profilePlan() + withEbicsImages() deckt alle 6 bekannten Tags ab
+        // profilePlan() + withEbicsImages() covers all known tags except native variants
         BenchmarkPlan base = BenchmarkPlan.profilePlan();
         BenchmarkPlan ebics = base.withEbicsImages();
 
         Set<String> baseTags = DockerImageBuilder.collectUniqueImageTags(base);
         Set<String> ebicsTags = DockerImageBuilder.collectUniqueImageTags(ebics);
 
-        // Zusammen muessen alle 10 Tags aus der Map abgedeckt sein
         Set<String> allTags = new java.util.HashSet<>(baseTags);
         allTags.addAll(ebicsTags);
 
+        // Native images are not in the plan (P05 removed) but remain in the map
+        Set<String> nativeTags = Set.of("tfl4-ek-bench:native", "tfl4-ek-bench:native-ek");
         for (String knownTag : DockerImageBuilder.IMAGE_DOCKERFILE_MAP.keySet()) {
+            if (nativeTags.contains(knownTag)) continue;
             assertTrue(allTags.contains(knownTag),
                     "Known tag '" + knownTag + "' should be covered by profilePlan + withEbicsImages");
         }

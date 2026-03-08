@@ -45,6 +45,8 @@ class ExcelExporterTest {
                 List.of(DockerStatSample.parse("2.1%|200MiB / 768MiB|26.04%|12kB / 6kB|55MB / 2MB|30")),
                 1,
                 null,
+                null,
+                null,
                 null
         );
     }
@@ -69,6 +71,8 @@ class ExcelExporterTest {
                 List.of(),
                 List.of(),
                 1,
+                null,
+                null,
                 null,
                 null
         );
@@ -198,7 +202,7 @@ class ExcelExporterTest {
                 null, null, null,
                 BenchmarkScenario.PAYLOAD_HEAVY_JSON, 100, "/json?n=100",
                 MeasurementProfile.defaults(),
-                null, null, null, 1, null, null
+                null, null, null, 1, null, null, null, null
         );
         Path xlsx = tempDir.resolve("test.xlsx");
         ExcelExporter.writeExcel(List.of(result), xlsx);
@@ -712,6 +716,8 @@ class ExcelExporterTest {
                 List.of(DockerStatSample.parse("45.5%|280MiB / 768MiB|36.46%|10kB / 5kB|50MB / 1MB|35")),
                 List.of(DockerStatSample.parse("2.1%|200MiB / 768MiB|26.04%|12kB / 6kB|55MB / 2MB|30")),
                 1,
+                null,
+                null,
                 null,
                 null
         );

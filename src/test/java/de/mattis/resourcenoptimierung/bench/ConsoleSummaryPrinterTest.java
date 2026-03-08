@@ -43,7 +43,7 @@ class ConsoleSummaryPrinterTest {
                 null, scenario, 200000, "/json?n=200000",
                 MeasurementProfile.defaults(),
                 List.of(), List.of(), List.of(), 1,
-                null, null
+                null, null, null, null
         );
     }
 
@@ -119,7 +119,7 @@ class ConsoleSummaryPrinterTest {
                 null, BenchmarkScenario.PAYLOAD_HEAVY_JSON, 100, "/json?n=100",
                 MeasurementProfile.defaults(),
                 List.of(), List.of(), List.of(), 1,
-                null, null
+                null, null, null, null
         );
         ConsoleSummaryPrinter.print(List.of(nativeResult));
         String output = getCaptured();
@@ -152,7 +152,7 @@ class ConsoleSummaryPrinterTest {
                 List.of(sample),  // load
                 List.of(sample),  // post
                 1,
-                null, null
+                null, null, null, null
         );
         ConsoleSummaryPrinter.print(List.of(result));
         String output = getCaptured();
@@ -172,7 +172,7 @@ class ConsoleSummaryPrinterTest {
                 null, BenchmarkScenario.PAYLOAD_HEAVY_JSON, 200000, "/json?n=200000",
                 MeasurementProfile.defaults(),
                 List.of(), List.of(), List.of(), 1,
-                null, null
+                null, null, null, null
         );
         RunResult rep2 = new RunResult(
                 "baseline", "img:jvm", 1100, 0.35,
@@ -183,7 +183,7 @@ class ConsoleSummaryPrinterTest {
                 null, BenchmarkScenario.PAYLOAD_HEAVY_JSON, 200000, "/json?n=200000",
                 MeasurementProfile.defaults(),
                 List.of(), List.of(), List.of(), 2,
-                null, null
+                null, null, null, null
         );
         ConsoleSummaryPrinter.print(List.of(rep1, rep2));
         String output = getCaptured();

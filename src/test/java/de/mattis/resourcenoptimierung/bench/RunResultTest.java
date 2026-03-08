@@ -36,6 +36,8 @@ class RunResultTest {
                 List.of(),
                 1,
                 null,
+                null,
+                null,
                 null
         );
 
@@ -82,7 +84,9 @@ class RunResultTest {
                 null,  // dockerPostSamples
                 1,
                 null,  // gcSummary
-                null   // gcLogPath
+                null,  // gcLogPath
+                null,  // category
+                null   // runtimeModel
         );
 
         assertNull(result.effectiveJavaToolOptions());
@@ -99,12 +103,12 @@ class RunResultTest {
         RunResult a = new RunResult("a", "img:jvm", 100, 0.1, lats, 1.0, 100.0,
                 "", ReadinessCheckUsed.ACTUATOR_HEALTH, null,
                 BenchmarkScenario.PAYLOAD_HEAVY_JSON, 100, "/json?n=100",
-                profile, List.of(), List.of(), List.of(), 1, null, null);
+                profile, List.of(), List.of(), List.of(), 1, null, null, null, null);
 
         RunResult b = new RunResult("a", "img:jvm", 100, 0.1, lats, 1.0, 100.0,
                 "", ReadinessCheckUsed.ACTUATOR_HEALTH, null,
                 BenchmarkScenario.PAYLOAD_HEAVY_JSON, 100, "/json?n=100",
-                profile, List.of(), List.of(), List.of(), 1, null, null);
+                profile, List.of(), List.of(), List.of(), 1, null, null, null, null);
 
         assertEquals(a, b);
     }

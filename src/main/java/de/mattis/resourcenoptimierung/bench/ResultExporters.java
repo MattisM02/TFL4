@@ -82,7 +82,7 @@ public final class ResultExporters {
                 "warmupRequests,measureRequests,concurrency,sleepBetweenRequestsMs," +
                 "cpuLoadAvg,memLoadAvg,memLoadMax," +
                 "gcCount,gcFullCount,gcTotalPauseMs,gcMaxPauseMs,gcOverheadPercent,gcPeakHeapAfterMb," +
-                "repetition");
+                "repetition,category,runtimeModel");
         w.newLine();
     }
 
@@ -157,6 +157,10 @@ public final class ResultExporters {
         w.write(",");
 
         w.write(Integer.toString(r.repetition()));
+        w.write(",");
+        w.write(csv(r.category()));
+        w.write(",");
+        w.write(csv(r.runtimeModel()));
         w.newLine();
     }
 
