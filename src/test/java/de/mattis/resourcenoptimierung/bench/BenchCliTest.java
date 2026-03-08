@@ -313,6 +313,52 @@ class BenchCliTest {
         }
     }
 
+    // ==================== resolvePlan — --profiles flag ====================
+
+    @Test
+    void resolvePlan_profilesFlag_returnsProfilePlan() {
+        String[] args = {"--profiles"};
+        BenchmarkPlan plan = BenchCli.resolvePlan(args, BenchmarkScenario.PAYLOAD_HEAVY_JSON);
+        assertEquals(5, plan.configs.size(), "Profile plan should have 5 configs (P01-P05)");
+        assertTrue(plan.configs.get(0).name().startsWith("P01"));
+    }
+
+    @Test
+    void resolvePlan_profilesFlag_ebics_usesEbicsImages() {
+        String[] args = {"--profiles"};
+        BenchmarkPlan plan = BenchCli.resolvePlan(args, BenchmarkScenario.EBICS_UPLOAD);
+        assertEquals(5, plan.configs.size());
+        // P01 (HOTSPOT) should use jvm-ek
+        assertEquals("tfl4-ek-bench:jvm-ek", plan.configs.get(0).dockerImage());
+        // P04 (OPENJ9) should use openj9-ek
+        BenchmarkConfig p04 = plan.configs.stream()
+                .filter(c -> c.name().contains("openj9"))
+                .findFirst().orElseThrow();
+        assertEquals("tfl4-ek-bench:openj9-ek", p04.dockerImage());
+        // P05 (NATIVE) should use native-ek
+        BenchmarkConfig p05 = plan.configs.stream()
+                .filter(c -> c.name().contains("native"))
+                .findFirst().orElseThrow();
+        assertEquals("tfl4-ek-bench:native-ek", p05.dockerImage());
+    }
+
+    @Test
+    void resolvePlan_profilesFlag_containsAllRuntimeTypes() {
+        String[] args = {"--profiles"};
+        BenchmarkPlan plan = BenchCli.resolvePlan(args, BenchmarkScenario.PAYLOAD_HEAVY_JSON);
+        assertTrue(plan.configs.stream().anyMatch(c -> c.runtimeType() == RuntimeType.HOTSPOT));
+        assertTrue(plan.configs.stream().anyMatch(c -> c.runtimeType() == RuntimeType.OPENJ9));
+        assertTrue(plan.configs.stream().anyMatch(c -> c.runtimeType() == RuntimeType.NATIVE));
+    }
+
+    @Test
+    void resolvePlan_jvmArgs_alwaysHotspot() {
+        String[] args = {"--jvmArgs", "-XX:+UseZGC"};
+        BenchmarkPlan plan = BenchCli.resolvePlan(args, BenchmarkScenario.PAYLOAD_HEAVY_JSON);
+        assertEquals(RuntimeType.HOTSPOT, plan.configs.get(0).runtimeType(),
+                "CLI custom config should default to HOTSPOT");
+    }
+
     // ==================== hasFlag ====================
 
     @Test
@@ -418,5 +464,118 @@ class BenchCliTest {
         int defaultReps = BenchCli.hasFlag(args, "--quick") ? 1 : 3;
         int reps = BenchCli.resolveIntArg(args, "--repetitions", defaultReps);
         assertEquals(5, reps);
+    }
+
+    // ==================== --rebuild ====================
+
+    @Test
+    void hasFlag_rebuild_present() {
+        String[] args = {"--scenario", "json", "--rebuild"};
+        assertTrue(BenchCli.hasFlag(args, "--rebuild"));
+    }
+
+    @Test
+    void hasFlag_rebuild_notPresent() {
+        String[] args = {"--scenario", "json"};
+        assertFalse(BenchCli.hasFlag(args, "--rebuild"));
+    }
+
+    @Test
+    void hasFlag_rebuild_combinedWithProfiles() {
+        String[] args = {"--profiles", "--rebuild", "--scenario", "json"};
+        assertTrue(BenchCli.hasFlag(args, "--rebuild"));
+        assertTrue(BenchCli.hasFlag(args, "--profiles"));
+    }
+
+    @Test
+    void hasFlag_rebuild_combinedWithQuick() {
+        String[] args = {"--quick", "--rebuild"};
+        assertTrue(BenchCli.hasFlag(args, "--rebuild"));
+        assertTrue(BenchCli.hasFlag(args, "--quick"));
+    }
+
+    // ==================== --smoke ====================
+
+    @Test
+    void resolveProfile_smoke_usesSmokeDefaults() {
+        String[] args = {"--smoke"};
+        MeasurementProfile p = BenchCli.resolveProfile(args);
+        assertEquals(3, p.warmupRequests());
+        assertEquals(5, p.measureRequests());
+        assertEquals(1, p.concurrency());
+        assertEquals(0, p.sleepBetweenRequestsMs());
+    }
+
+    @Test
+    void resolveProfile_smoke_withOverride() {
+        String[] args = {"--smoke", "--measureRequests", "10"};
+        MeasurementProfile p = BenchCli.resolveProfile(args);
+        assertEquals(3, p.warmupRequests());    // smoke default
+        assertEquals(10, p.measureRequests());  // overridden
+        assertEquals(1, p.concurrency());       // smoke default
+        assertEquals(0, p.sleepBetweenRequestsMs());
+    }
+
+    @Test
+    void resolveProfile_smoke_overridesQuick() {
+        // --smoke has precedence over --quick
+        String[] args = {"--smoke", "--quick"};
+        MeasurementProfile p = BenchCli.resolveProfile(args);
+        assertEquals(3, p.warmupRequests());    // smoke, not quick (10)
+        assertEquals(5, p.measureRequests());   // smoke, not quick (30)
+    }
+
+    @Test
+    void resolveWorkloadN_smoke_ebics_reduced() {
+        String[] args = {"--smoke"};
+        assertEquals(3, BenchCli.resolveWorkloadN(args, BenchmarkScenario.EBICS_UPLOAD));
+    }
+
+    @Test
+    void resolveWorkloadN_smoke_json_unchanged() {
+        String[] args = {"--smoke"};
+        assertEquals(200_000, BenchCli.resolveWorkloadN(args, BenchmarkScenario.PAYLOAD_HEAVY_JSON));
+    }
+
+    @Test
+    void resolveWorkloadN_smoke_alloc_unchanged() {
+        String[] args = {"--smoke"};
+        assertEquals(10_000_000, BenchCli.resolveWorkloadN(args, BenchmarkScenario.ALLOC_HEAVY_OK));
+    }
+
+    @Test
+    void resolveWorkloadN_smoke_explicitN_overrides() {
+        String[] args = {"--smoke", "--n", "7"};
+        assertEquals(7, BenchCli.resolveWorkloadN(args, BenchmarkScenario.EBICS_UPLOAD));
+    }
+
+    @Test
+    void repetitions_smoke_defaultIs1() {
+        // Simulates what main() does: smoke flag -> default repetitions = 1
+        String[] args = {"--smoke"};
+        int defaultReps = (BenchCli.hasFlag(args, "--smoke") || BenchCli.hasFlag(args, "--quick")) ? 1 : 3;
+        int reps = BenchCli.resolveIntArg(args, "--repetitions", defaultReps);
+        assertEquals(1, reps);
+    }
+
+    @Test
+    void repetitions_smoke_explicitOverride() {
+        // --smoke setzt default auf 1, aber --repetitions 3 ueberschreibt
+        String[] args = {"--smoke", "--repetitions", "3"};
+        int defaultReps = (BenchCli.hasFlag(args, "--smoke") || BenchCli.hasFlag(args, "--quick")) ? 1 : 3;
+        int reps = BenchCli.resolveIntArg(args, "--repetitions", defaultReps);
+        assertEquals(3, reps);
+    }
+
+    @Test
+    void hasFlag_smoke_present() {
+        String[] args = {"--smoke", "--scenario", "json"};
+        assertTrue(BenchCli.hasFlag(args, "--smoke"));
+    }
+
+    @Test
+    void hasFlag_smoke_notPresent() {
+        String[] args = {"--scenario", "json"};
+        assertFalse(BenchCli.hasFlag(args, "--smoke"));
     }
 }

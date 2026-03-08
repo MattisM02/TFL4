@@ -199,7 +199,7 @@ class BenchmarkPlanTest {
     @Test
     void customPlan_constructsCorrectly() {
         List<BenchmarkConfig> configs = List.of(
-                new BenchmarkConfig("custom", "myimage:latest", List.of("-Xmx256m"))
+                new BenchmarkConfig("custom", "myimage:latest", List.of("-Xmx256m"), RuntimeType.HOTSPOT)
         );
         BenchmarkPlan plan = new BenchmarkPlan(configs);
         assertEquals(1, plan.configs.size());
@@ -245,12 +245,147 @@ class BenchmarkPlanTest {
         assertEquals("tfl4-ek-bench:jvm", original.configs.get(0).dockerImage());
     }
 
+    // ==================== defaultPlan RuntimeType ====================
+
+    @Test
+    void defaultPlan_allConfigsAreHotspot() {
+        BenchmarkPlan plan = BenchmarkPlan.defaultPlan();
+        for (BenchmarkConfig cfg : plan.configs) {
+            assertEquals(RuntimeType.HOTSPOT, cfg.runtimeType(),
+                    "Config '" + cfg.name() + "' should be HOTSPOT in defaultPlan");
+        }
+    }
+
+    @Test
+    void withDockerImage_preservesRuntimeType() {
+        BenchmarkPlan original = BenchmarkPlan.defaultPlan();
+        BenchmarkPlan updated = original.withDockerImage("custom:image");
+        for (int i = 0; i < original.configs.size(); i++) {
+            assertEquals(original.configs.get(i).runtimeType(), updated.configs.get(i).runtimeType(),
+                    "RuntimeType should be preserved by withDockerImage");
+        }
+    }
+
+    // ==================== profilePlan ====================
+
+    @Test
+    void profilePlan_isNotNull() {
+        BenchmarkPlan plan = BenchmarkPlan.profilePlan();
+        assertNotNull(plan);
+        assertNotNull(plan.configs);
+    }
+
+    @Test
+    void profilePlan_containsFiveProfiles() {
+        BenchmarkPlan plan = BenchmarkPlan.profilePlan();
+        assertEquals(5, plan.configs.size(),
+                "Profile plan should contain 5 profiles (P01-P05)");
+    }
+
+    @Test
+    void profilePlan_namesStartWithP() {
+        BenchmarkPlan plan = BenchmarkPlan.profilePlan();
+        for (BenchmarkConfig cfg : plan.configs) {
+            assertTrue(cfg.name().startsWith("P0"),
+                    "Profile name should start with 'P0', got: " + cfg.name());
+        }
+    }
+
+    @Test
+    void profilePlan_p01HotspotStandard() {
+        BenchmarkPlan plan = BenchmarkPlan.profilePlan();
+        BenchmarkConfig p01 = findConfig(plan, "P01-hotspot-standard");
+        assertEquals(RuntimeType.HOTSPOT, p01.runtimeType());
+        assertEquals("tfl4-ek-bench:jvm", p01.dockerImage());
+        assertTrue(p01.jvmArgs().contains("-XX:+UseG1GC"));
+        assertTrue(p01.jvmArgs().contains("-XX:MaxRAMPercentage=75"));
+    }
+
+    @Test
+    void profilePlan_p02HotspotFastStartup() {
+        BenchmarkPlan plan = BenchmarkPlan.profilePlan();
+        BenchmarkConfig p02 = findConfig(plan, "P02-hotspot-fast-startup");
+        assertEquals(RuntimeType.HOTSPOT, p02.runtimeType());
+        assertTrue(p02.jvmArgs().contains("-XX:TieredStopAtLevel=1"));
+    }
+
+    @Test
+    void profilePlan_p03HotspotLowLatency() {
+        BenchmarkPlan plan = BenchmarkPlan.profilePlan();
+        BenchmarkConfig p03 = findConfig(plan, "P03-hotspot-low-latency");
+        assertEquals(RuntimeType.HOTSPOT, p03.runtimeType());
+        assertTrue(p03.jvmArgs().contains("-XX:+UseZGC"));
+    }
+
+    @Test
+    void profilePlan_p04Openj9LowMemory() {
+        BenchmarkPlan plan = BenchmarkPlan.profilePlan();
+        BenchmarkConfig p04 = findConfig(plan, "P04-openj9-low-memory");
+        assertEquals(RuntimeType.OPENJ9, p04.runtimeType());
+        assertEquals("tfl4-ek-bench:openj9", p04.dockerImage());
+    }
+
+    @Test
+    void profilePlan_p05Native() {
+        BenchmarkPlan plan = BenchmarkPlan.profilePlan();
+        BenchmarkConfig p05 = findConfig(plan, "P05-native");
+        assertEquals(RuntimeType.NATIVE, p05.runtimeType());
+        assertEquals("tfl4-ek-bench:native", p05.dockerImage());
+        assertTrue(p05.jvmArgs().isEmpty());
+    }
+
+    // ==================== withEbicsImages ====================
+
+    @Test
+    void withEbicsImages_mapsHotspotToJvmEk() {
+        BenchmarkPlan plan = BenchmarkPlan.profilePlan();
+        BenchmarkPlan ebics = plan.withEbicsImages();
+        BenchmarkConfig p01 = findConfig(ebics, "P01-hotspot-standard");
+        assertEquals("tfl4-ek-bench:jvm-ek", p01.dockerImage());
+    }
+
+    @Test
+    void withEbicsImages_mapsOpenj9ToOpenj9Ek() {
+        BenchmarkPlan plan = BenchmarkPlan.profilePlan();
+        BenchmarkPlan ebics = plan.withEbicsImages();
+        BenchmarkConfig p04 = findConfig(ebics, "P04-openj9-low-memory");
+        assertEquals("tfl4-ek-bench:openj9-ek", p04.dockerImage());
+    }
+
+    @Test
+    void withEbicsImages_mapsNativeToNativeEk() {
+        BenchmarkPlan plan = BenchmarkPlan.profilePlan();
+        BenchmarkPlan ebics = plan.withEbicsImages();
+        BenchmarkConfig p05 = findConfig(ebics, "P05-native");
+        assertEquals("tfl4-ek-bench:native-ek", p05.dockerImage());
+    }
+
+    @Test
+    void withEbicsImages_preservesRuntimeType() {
+        BenchmarkPlan plan = BenchmarkPlan.profilePlan();
+        BenchmarkPlan ebics = plan.withEbicsImages();
+        for (int i = 0; i < plan.configs.size(); i++) {
+            assertEquals(plan.configs.get(i).runtimeType(), ebics.configs.get(i).runtimeType(),
+                    "RuntimeType should be preserved by withEbicsImages");
+        }
+    }
+
+    @Test
+    void withEbicsImages_preservesJvmArgs() {
+        BenchmarkPlan plan = BenchmarkPlan.profilePlan();
+        BenchmarkPlan ebics = plan.withEbicsImages();
+        for (int i = 0; i < plan.configs.size(); i++) {
+            assertEquals(plan.configs.get(i).jvmArgs(), ebics.configs.get(i).jvmArgs(),
+                    "JVM args should be preserved by withEbicsImages");
+        }
+    }
+
     /** Helper: finds a config by name or fails the test. */
     private static BenchmarkConfig findConfig(BenchmarkPlan plan, String name) {
         Optional<BenchmarkConfig> cfg = plan.configs.stream()
                 .filter(c -> name.equals(c.name()))
                 .findFirst();
-        assertTrue(cfg.isPresent(), "Default plan should contain config '" + name + "'");
+        assertTrue(cfg.isPresent(), "Plan should contain config '" + name + "'");
         return cfg.get();
     }
 }

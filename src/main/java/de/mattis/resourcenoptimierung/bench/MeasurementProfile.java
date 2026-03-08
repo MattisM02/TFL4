@@ -49,6 +49,16 @@ public record MeasurementProfile(
     }
 
     /**
+     * Ultra-leichtes Messprofil fuer --smoke: 3 Warmup, 5 Messung, sequentiell, kein Sleep.
+     * Dient ausschliesslich als Smoke-Test, um die Pipeline (Docker, Endpunkte, CSV/Excel-Export)
+     * schnellstmoeglich zu validieren. Statistische Aussagekraft ist nicht gegeben.
+     * Zusammen mit 1 Wiederholung laeuft ein kompletter Durchlauf in unter einer Minute.
+     */
+    public static MeasurementProfile smokeDefaults() {
+        return new MeasurementProfile(3, 5, 1, 0);
+    }
+
+    /**
      * Validiert die Profilwerte und gibt Warnungen bei fragwuerdigen Werten aus.
      *
      * @throws IllegalArgumentException bei ungueltigen Werten

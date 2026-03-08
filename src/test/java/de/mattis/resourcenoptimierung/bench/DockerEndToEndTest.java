@@ -94,7 +94,8 @@ class DockerEndToEndTest {
         BenchmarkConfig cfg = new BenchmarkConfig(
                 "e2e-test",
                 DOCKER_IMAGE,
-                List.of()  // keine Extra-JVM-Flags
+                List.of(),  // keine Extra-JVM-Flags
+                RuntimeType.HOTSPOT
         );
 
         // Kleines n fuer schnellen Durchlauf
@@ -182,7 +183,8 @@ class DockerEndToEndTest {
         BenchmarkConfig cfg = new BenchmarkConfig(
                 "e2e-alloc-test",
                 DOCKER_IMAGE,
-                List.of()
+                List.of(),
+                RuntimeType.HOTSPOT
         );
 
         int workloadN = 1000;
@@ -208,7 +210,8 @@ class DockerEndToEndTest {
         BenchmarkConfig cfg = new BenchmarkConfig(
                 "e2e-flags-test",
                 DOCKER_IMAGE,
-                List.of("-XX:-UseCompressedOops")
+                List.of("-XX:-UseCompressedOops"),
+                RuntimeType.HOTSPOT
         );
 
         int workloadN = 50;
@@ -245,7 +248,8 @@ class DockerEndToEndTest {
         BenchmarkConfig cfg = new BenchmarkConfig(
                 "e2e-concurrent-test",
                 DOCKER_IMAGE,
-                List.of()
+                List.of(),
+                RuntimeType.HOTSPOT
         );
 
         int workloadN = 50;

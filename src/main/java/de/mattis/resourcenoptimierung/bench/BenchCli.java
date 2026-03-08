@@ -32,9 +32,14 @@ import java.util.List;
  * - --configName:              Name fuer die CLI-Konfiguration (default: "cli-custom")
  * - --dockerImage:             Docker-Image fuer den CLI-Run (default: "tfl4-ek-bench:jvm")
  * - --skipTravicLink:          TravicLink docker-compose NICHT starten (externer Server erwartet)
+ * - --profiles:                Laufzeitprofile statt Flag-Analyse (5 Profile P01-P05 statt 20 HotSpot-Configs)
+ * - --rebuild:                 Erzwingt Neuaufbau von Maven-JAR und Docker-Images (auch wenn vorhanden)
  * - --merge-excel:             Alle CSVs aus bench-results/ in ein Excel zusammenfuehren (kein Benchmark)
  * - --quick:                   Schnelldurchlauf (10 Warmup, 30 Mess-Requests, 1 Wiederholung).
  *                              Explizite CLI-Werte (z.B. --measureRequests 50) ueberschreiben die Quick-Defaults.
+ * - --smoke:                   Ultra-leichter Smoke-Test (3 Warmup, 5 Mess-Requests, 1 Wiederholung).
+ *                              Fuer EBICS: n=3. Dient nur zur Validierung der Pipeline (Docker, Endpunkte, Export).
+ *                              --smoke hat Vorrang vor --quick. Explizite CLI-Werte ueberschreiben Smoke-Defaults.
  *
  * Standalone Excel-Merge:
  *   java -cp ... BenchCli --merge-excel
@@ -70,8 +75,10 @@ public class BenchCli {
         int workloadN = resolveWorkloadN(args, scenario);
         MeasurementProfile profile = resolveProfile(args);
         BenchmarkPlan plan = resolvePlan(args, scenario);
-        int defaultReps = hasFlag(args, "--quick") ? 1 : 3;
+        int defaultReps = (hasFlag(args, "--smoke") || hasFlag(args, "--quick")) ? 1 : 3;
         int repetitions = resolveIntArg(args, "--repetitions", defaultReps);
+
+        boolean rebuild = hasFlag(args, "--rebuild");
 
         System.out.println("Benchmark configuration:");
         System.out.println("  Scenario:     " + scenario);
@@ -80,7 +87,13 @@ public class BenchCli {
         System.out.println("  Repetitions:  " + repetitions);
         System.out.println("  Configs:      " + plan.configs.size()
                 + " (" + plan.configs.stream().map(BenchmarkConfig::name).toList() + ")");
+        if (rebuild) {
+            System.out.println("  Rebuild:      yes (force rebuild JAR + Docker images)");
+        }
         System.out.println();
+
+        // Docker-Images pruefen und bei Bedarf automatisch bauen
+        DockerImageBuilder.ensureImagesExist(plan, rebuild);
 
         // EBICS: TravicLink-Bankserver automatisch starten (sofern nicht --skipTravicLink)
         TravicLinkManager travicLink = null;
@@ -131,15 +144,20 @@ public class BenchCli {
 
     /**
      * Baut das Messprofil aus CLI-Argumenten oder Defaults.
+     * Bei --smoke werden minimale Defaults verwendet (3/5 statt 200/500) — reiner Pipeline-Test.
      * Bei --quick werden reduzierte Defaults verwendet (10/30 statt 200/500).
-     * Explizite CLI-Werte ueberschreiben die Quick-Defaults.
+     * --smoke hat Vorrang vor --quick, falls beide angegeben sind.
+     * Explizite CLI-Werte ueberschreiben die jeweiligen Defaults.
      *
      * @param args CLI-Argumente
      * @return konfiguriertes MeasurementProfile
      */
     static MeasurementProfile resolveProfile(String[] args) {
+        boolean smoke = hasFlag(args, "--smoke");
         boolean quick = hasFlag(args, "--quick");
-        MeasurementProfile base = quick ? MeasurementProfile.quickDefaults() : MeasurementProfile.defaults();
+        MeasurementProfile base = smoke ? MeasurementProfile.smokeDefaults()
+                : quick ? MeasurementProfile.quickDefaults()
+                : MeasurementProfile.defaults();
 
         int warmup = resolveIntArg(args, "--warmupRequests", base.warmupRequests());
         int measure = resolveIntArg(args, "--measureRequests", base.measureRequests());
@@ -167,10 +185,15 @@ public class BenchCli {
 
         String jvmArgsRaw = findArgValue(args, "--jvmArgs");
         if (jvmArgsRaw == null) {
-            BenchmarkPlan plan = BenchmarkPlan.defaultPlan();
+            // Entscheidung: Flag-Analyse (default) oder Laufzeitprofile (--profiles)
+            BenchmarkPlan plan = hasFlag(args, "--profiles")
+                    ? BenchmarkPlan.profilePlan()
+                    : BenchmarkPlan.defaultPlan();
             if (ebics) {
-                // Alle Configs auf das EK-Image umstellen
-                plan = plan.withDockerImage(defaultImage);
+                // Alle Configs auf die passenden EK-Images umstellen
+                plan = hasFlag(args, "--profiles")
+                        ? plan.withEbicsImages()
+                        : plan.withDockerImage(defaultImage);
             }
             return plan;
         }
@@ -182,7 +205,7 @@ public class BenchCli {
         if (dockerImage == null) dockerImage = defaultImage;
 
         List<String> jvmArgs = parseJvmArgs(jvmArgsRaw);
-        BenchmarkConfig config = new BenchmarkConfig(configName, dockerImage, jvmArgs);
+        BenchmarkConfig config = new BenchmarkConfig(configName, dockerImage, jvmArgs, RuntimeType.HOTSPOT);
         return new BenchmarkPlan(List.of(config));
     }
 
@@ -252,6 +275,7 @@ public class BenchCli {
     /**
      * Bestimmt den Workload-Parameter n.
      * Wenn --n gesetzt ist, wird der Wert verwendet, sonst ein Default pro Szenario.
+     * Bei --smoke werden die Defaults reduziert (EBICS: 3 statt 10).
      *
      * @param args CLI-Argumente
      * @param scenario Szenario fuer die Default-Wahl
@@ -261,11 +285,13 @@ public class BenchCli {
         String raw = findArgValue(args, "--n");
         if (raw != null) return Integer.parseInt(raw);
 
-        // Defaults pro Scenario
+        boolean smoke = hasFlag(args, "--smoke");
+
+        // Defaults pro Scenario (--smoke reduziert EBICS-Workload)
         return switch (scenario) {
             case PAYLOAD_HEAVY_JSON -> 200_000;
             case ALLOC_HEAVY_OK -> 10_000_000;
-            case EBICS_UPLOAD -> 10;
+            case EBICS_UPLOAD -> smoke ? 3 : 10;
         };
     }
 

@@ -158,7 +158,7 @@ public class SingleRun {
             //    Zweck: Nachvollziehbarkeit, ob Flags "ankamen" oder ob Startprobleme sichtbar sind.
             //    Best-effort, weil Logs nicht immer verfuegbar/sofort da sind.
             String startupLogSnippet = null;
-            if (!cfg.isNative()) {
+            if (cfg.runtimeType().isJvm()) {
                 try {
                     String logs = dockerLogsTail(containerId, 200);
                     startupLogSnippet = trimSnippet(logs, 2000);
@@ -236,7 +236,7 @@ public class SingleRun {
             //     Level 2+3: Parsen und als GcSummary + GcEvents in RunResult aufnehmen.
             GcSummary gcSummary = null;
             String gcLogPath = null;
-            if (!cfg.isNative() && containerId != null && !containerId.isBlank()) {
+            if (cfg.runtimeType().hasGcLogs() && containerId != null && !containerId.isBlank()) {
                 try {
                     String fullLog = dockerLogsAll(containerId);
 
@@ -248,9 +248,13 @@ public class SingleRun {
                     Files.writeString(logFile, fullLog);
                     gcLogPath = logFile.toString();
 
-                    // Level 2+3: GC-Events parsen
+                    // Level 2+3: GC-Events parsen (Parser abhaengig vom RuntimeType)
                     double totalRuntimeSeconds = readinessMs / 1000.0 + totalMeasureTimeSeconds;
-                    gcSummary = GcLogParser.parse(fullLog, totalRuntimeSeconds);
+                    gcSummary = switch (cfg.runtimeType()) {
+                        case HOTSPOT -> GcLogParser.parse(fullLog, totalRuntimeSeconds);
+                        case OPENJ9  -> OpenJ9GcLogParser.parse(fullLog, totalRuntimeSeconds);
+                        case NATIVE  -> null; // sollte nicht erreicht werden (hasGcLogs() == false)
+                    };
 
                     if (gcSummary != null) {
                         System.err.printf("[GC] %s rep%d: %d pauses (%.1f ms total, max=%.1f ms, overhead=%.2f%%)%n",
@@ -385,7 +389,7 @@ public class SingleRun {
         }
 
         // JAVA_TOOL_OPTIONS setzen (nur fuer JVM, nicht fuer native)
-        if (!cfg.isNative()) {
+        if (cfg.runtimeType().isJvm()) {
             String javaToolOptions = (effectiveJavaToolOptions == null) ? "" : effectiveJavaToolOptions.trim();
             if (!javaToolOptions.isBlank()) {
                 cmd.add("-e");
@@ -684,19 +688,27 @@ public class SingleRun {
     /**
      * Baut den JAVA_TOOL_OPTIONS-String fuer diesen Run.
      *
-     * Injiziert automatisch GC-Logging (-Xlog:gc*:stdout) fuer alle JVM-Runs,
-     * damit GC-Verhalten in den Container-Logs nachvollziehbar ist.
+     * Injiziert automatisch GC-Logging abhaengig vom Laufzeittyp:
+     * <ul>
+     *   <li>HOTSPOT: {@code -Xlog:gc*:stdout} (Unified Logging, JEP 158)</li>
+     *   <li>OPENJ9: {@code -verbose:gc} (XML-basiertes Format auf stderr)</li>
+     *   <li>NATIVE: kein JAVA_TOOL_OPTIONS (kein JVM-Overhead)</li>
+     * </ul>
      *
      * @param cfg Benchmark-Konfiguration
      * @return Flags als String oder null bei native
      */
     private static String computeEffectiveJavaToolOptions(BenchmarkConfig cfg) {
-        if (cfg.isNative()) return null;
+        if (!cfg.runtimeType().isJvm()) return null;
 
         List<String> args = new ArrayList<>();
 
-        // GC-Logging: immer aktiv, Output auf stdout (landet in docker logs)
-        args.add("-Xlog:gc*:stdout");
+        // GC-Logging: Runtime-spezifisch
+        switch (cfg.runtimeType()) {
+            case HOTSPOT -> args.add("-Xlog:gc*:stdout");
+            case OPENJ9  -> args.add("-verbose:gc");
+            default -> { /* NATIVE — nicht erreichbar wegen isJvm()-Guard */ }
+        }
 
         if (cfg.jvmArgs() != null) args.addAll(cfg.jvmArgs());
 

@@ -1,0 +1,33 @@
+# ── Stage 1: Native Image Build ──────────────────────────────────────────────
+# GraalVM Native Image erfordert das volle JDK + native-image Tool.
+# Der Build braucht viel RAM (empfohlen: mindestens 4 GB fuer docker build).
+FROM ghcr.io/graalvm/native-image:25 AS builder
+
+WORKDIR /build
+COPY target/jvm-optim-demo-0.0.1-SNAPSHOT.jar app.jar
+
+# Spring Boot Native Image Build
+# --no-fallback: kein JVM-Fallback (reines Native Binary)
+# -H:+ReportExceptionStackTraces: bessere Fehlerausgabe bei Build-Fehlern
+RUN native-image \
+    --no-fallback \
+    -H:+ReportExceptionStackTraces \
+    -jar app.jar \
+    -o app
+
+# ── Stage 2: Minimales Runtime-Image ────────────────────────────────────────
+FROM debian:bookworm-slim
+
+WORKDIR /app
+COPY --from=builder /build/app /app/app
+
+# Native Image benoetigt keine JVM, nur glibc + Standardbibliotheken
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libz-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# EBICS config, PKCS#12 keys
+COPY ebics/ebicsclient.config ebics/ebicsclient_a00.p12 ebics/ebicsclient_e00.p12 ebics/ebicsclient_x00.p12 /app/ebics/
+
+EXPOSE 8080
+ENTRYPOINT ["/app/app"]
