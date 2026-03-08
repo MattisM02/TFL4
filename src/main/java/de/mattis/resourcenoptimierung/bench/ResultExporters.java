@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -38,84 +39,125 @@ public final class ResultExporters {
      */
     public static void writeCsv(List<RunResult> results, Path path) throws IOException {
         try (BufferedWriter w = Files.newBufferedWriter(path, StandardCharsets.UTF_8)) {
-
-            w.write("scenario,workloadN,workloadPath,configName,dockerImage,effectiveJavaToolOptions," +
-                    "readinessCheckUsed,readinessMs,firstSeconds," +
-                    "latencyCount,latencyMean,latencyP50,latencyP95,latencyP99," +
-                    "totalMeasureTimeSeconds,throughputReqPerSec," +
-                    "warmupRequests,measureRequests,concurrency,sleepBetweenRequestsMs," +
-                    "cpuLoadAvg,memLoadAvg,memLoadMax," +
-                    "gcCount,gcFullCount,gcTotalPauseMs,gcMaxPauseMs,gcOverheadPercent,gcPeakHeapAfterMb," +
-                    "repetition");
-            w.newLine();
-
+            writeCsvHeader(w);
             for (RunResult r : results) {
-                // Latenzen sortieren (Voraussetzung fuer Perzentile)
-                List<Double> lats = new ArrayList<>(r.latenciesSeconds());
-                lats.sort(Double::compareTo);
-
-                // Mittelwert der Latenzen
-                double mean = lats.stream().mapToDouble(Double::doubleValue).average().orElse(Double.NaN);
-
-                // --- Metadaten: Szenario + Workload ---
-                w.write(csv(r.scenario() == null ? "" : r.scenario().name())); w.write(",");
-                w.write(Integer.toString(r.workloadN())); w.write(",");
-                w.write(csv(r.workloadPath())); w.write(",");
-
-                // --- Metadaten: Konfiguration ---
-                w.write(csv(r.configName())); w.write(",");
-                w.write(csv(r.dockerImage())); w.write(",");
-                w.write(csv(normalizeFlags(r.effectiveJavaToolOptions()))); w.write(",");
-                w.write(csv(r.readinessCheckUsed() == null ? "" : r.readinessCheckUsed().name())); w.write(",");
-
-                // --- Timings ---
-                w.write(Long.toString(r.readinessMs())); w.write(",");
-                w.write(Double.toString(r.firstSeconds())); w.write(",");
-
-                // --- Latenz-Kennzahlen ---
-                w.write(Integer.toString(lats.size())); w.write(",");
-                w.write(Double.toString(mean)); w.write(",");
-                w.write(Double.toString(percentile(lats, 0.50))); w.write(",");
-                w.write(Double.toString(percentile(lats, 0.95))); w.write(",");
-                w.write(Double.toString(percentile(lats, 0.99))); w.write(",");
-
-                // --- Gesamtzeit + Durchsatz ---
-                w.write(Double.toString(r.totalMeasureTimeSeconds())); w.write(",");
-                w.write(Double.toString(r.throughputReqPerSec())); w.write(",");
-
-                // --- Messprofil ---
-                MeasurementProfile p = r.measurementProfile();
-                w.write(Integer.toString(p.warmupRequests())); w.write(",");
-                w.write(Integer.toString(p.measureRequests())); w.write(",");
-                w.write(Integer.toString(p.concurrency())); w.write(",");
-                w.write(Long.toString(p.sleepBetweenRequestsMs())); w.write(",");
-
-                // --- Docker-Stats (LOAD-Phase) ---
-                double cpuLoadAvg = dockerLoadAvg(r.dockerLoadSamples(), DockerStatSample::cpuPercent);
-                double memLoadAvg = dockerLoadAvg(r.dockerLoadSamples(), DockerStatSample::memPercent);
-                double memLoadMax = dockerLoadMax(r.dockerLoadSamples(), DockerStatSample::memPercent);
-                w.write(Double.toString(cpuLoadAvg)); w.write(",");
-                w.write(Double.toString(memLoadAvg)); w.write(",");
-                w.write(Double.toString(memLoadMax)); w.write(",");
-
-                // --- GC-Kennzahlen ---
-                GcSummary gc = r.gcSummary();
-                if (gc != null) {
-                    w.write(Integer.toString(gc.gcCount())); w.write(",");
-                    w.write(Integer.toString(gc.fullGcCount())); w.write(",");
-                    w.write(Double.toString(gc.totalPauseMs())); w.write(",");
-                    w.write(Double.toString(gc.maxPauseMs())); w.write(",");
-                    w.write(Double.toString(gc.gcOverheadPercent())); w.write(",");
-                    w.write(Double.toString(gc.peakHeapAfterGcKb() / 1024.0));
-                } else {
-                    w.write(",,,,,");   // 6 leere Felder
-                }
-                w.write(",");
-
-                w.write(Integer.toString(r.repetition()));
-                w.newLine();
+                writeCsvRow(w, r);
             }
         }
+    }
+
+    /**
+     * Haengt ein einzelnes Ergebnis an eine CSV-Datei an.
+     *
+     * Wenn die Datei noch nicht existiert oder leer ist, wird zuerst der Header geschrieben.
+     * Diese Methode ermoeglicht inkrementelle Sicherung waehrend des Benchmarks,
+     * damit Teilergebnisse bei spaeteren Fehlern nicht verloren gehen.
+     *
+     * @param path Zielpfad der CSV-Datei
+     * @param result einzelnes Run-Ergebnis
+     * @throws IOException wenn Schreiben fehlschlaegt
+     */
+    public static void appendCsvRow(Path path, RunResult result) throws IOException {
+        boolean needsHeader = !Files.exists(path) || Files.size(path) == 0;
+        try (BufferedWriter w = Files.newBufferedWriter(path, StandardCharsets.UTF_8,
+                StandardOpenOption.CREATE, StandardOpenOption.APPEND)) {
+            if (needsHeader) {
+                writeCsvHeader(w);
+            }
+            writeCsvRow(w, result);
+        }
+    }
+
+    /**
+     * Schreibt die CSV-Headerzeile.
+     *
+     * @param w Writer
+     * @throws IOException wenn Schreiben fehlschlaegt
+     */
+    static void writeCsvHeader(BufferedWriter w) throws IOException {
+        w.write("scenario,workloadN,workloadPath,configName,dockerImage,effectiveJavaToolOptions," +
+                "readinessCheckUsed,readinessMs,firstSeconds," +
+                "latencyCount,latencyMean,latencyP50,latencyP95,latencyP99," +
+                "totalMeasureTimeSeconds,throughputReqPerSec," +
+                "warmupRequests,measureRequests,concurrency,sleepBetweenRequestsMs," +
+                "cpuLoadAvg,memLoadAvg,memLoadMax," +
+                "gcCount,gcFullCount,gcTotalPauseMs,gcMaxPauseMs,gcOverheadPercent,gcPeakHeapAfterMb," +
+                "repetition");
+        w.newLine();
+    }
+
+    /**
+     * Schreibt eine einzelne CSV-Datenzeile fuer ein RunResult.
+     *
+     * @param w Writer
+     * @param r Run-Ergebnis
+     * @throws IOException wenn Schreiben fehlschlaegt
+     */
+    static void writeCsvRow(BufferedWriter w, RunResult r) throws IOException {
+        // Latenzen sortieren (Voraussetzung fuer Perzentile)
+        List<Double> lats = new ArrayList<>(r.latenciesSeconds());
+        lats.sort(Double::compareTo);
+
+        // Mittelwert der Latenzen
+        double mean = lats.stream().mapToDouble(Double::doubleValue).average().orElse(Double.NaN);
+
+        // --- Metadaten: Szenario + Workload ---
+        w.write(csv(r.scenario() == null ? "" : r.scenario().name())); w.write(",");
+        w.write(Integer.toString(r.workloadN())); w.write(",");
+        w.write(csv(r.workloadPath())); w.write(",");
+
+        // --- Metadaten: Konfiguration ---
+        w.write(csv(r.configName())); w.write(",");
+        w.write(csv(r.dockerImage())); w.write(",");
+        w.write(csv(normalizeFlags(r.effectiveJavaToolOptions()))); w.write(",");
+        w.write(csv(r.readinessCheckUsed() == null ? "" : r.readinessCheckUsed().name())); w.write(",");
+
+        // --- Timings ---
+        w.write(Long.toString(r.readinessMs())); w.write(",");
+        w.write(Double.toString(r.firstSeconds())); w.write(",");
+
+        // --- Latenz-Kennzahlen ---
+        w.write(Integer.toString(lats.size())); w.write(",");
+        w.write(Double.toString(mean)); w.write(",");
+        w.write(Double.toString(percentile(lats, 0.50))); w.write(",");
+        w.write(Double.toString(percentile(lats, 0.95))); w.write(",");
+        w.write(Double.toString(percentile(lats, 0.99))); w.write(",");
+
+        // --- Gesamtzeit + Durchsatz ---
+        w.write(Double.toString(r.totalMeasureTimeSeconds())); w.write(",");
+        w.write(Double.toString(r.throughputReqPerSec())); w.write(",");
+
+        // --- Messprofil ---
+        MeasurementProfile p = r.measurementProfile();
+        w.write(Integer.toString(p.warmupRequests())); w.write(",");
+        w.write(Integer.toString(p.measureRequests())); w.write(",");
+        w.write(Integer.toString(p.concurrency())); w.write(",");
+        w.write(Long.toString(p.sleepBetweenRequestsMs())); w.write(",");
+
+        // --- Docker-Stats (LOAD-Phase) ---
+        double cpuLoadAvg = dockerLoadAvg(r.dockerLoadSamples(), DockerStatSample::cpuPercent);
+        double memLoadAvg = dockerLoadAvg(r.dockerLoadSamples(), DockerStatSample::memPercent);
+        double memLoadMax = dockerLoadMax(r.dockerLoadSamples(), DockerStatSample::memPercent);
+        w.write(Double.toString(cpuLoadAvg)); w.write(",");
+        w.write(Double.toString(memLoadAvg)); w.write(",");
+        w.write(Double.toString(memLoadMax)); w.write(",");
+
+        // --- GC-Kennzahlen ---
+        GcSummary gc = r.gcSummary();
+        if (gc != null) {
+            w.write(Integer.toString(gc.gcCount())); w.write(",");
+            w.write(Integer.toString(gc.fullGcCount())); w.write(",");
+            w.write(Double.toString(gc.totalPauseMs())); w.write(",");
+            w.write(Double.toString(gc.maxPauseMs())); w.write(",");
+            w.write(Double.toString(gc.gcOverheadPercent())); w.write(",");
+            w.write(Double.toString(gc.peakHeapAfterGcKb() / 1024.0));
+        } else {
+            w.write(",,,,,");   // 6 leere Felder
+        }
+        w.write(",");
+
+        w.write(Integer.toString(r.repetition()));
+        w.newLine();
     }
 
     /**

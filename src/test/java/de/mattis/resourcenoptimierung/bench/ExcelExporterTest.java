@@ -78,9 +78,13 @@ class ExcelExporterTest {
         String header = "scenario,workloadN,workloadPath,configName,dockerImage,effectiveJavaToolOptions,"
                 + "readinessCheckUsed,readinessMs,firstSeconds,latencyCount,latencyMean,latencyP50,"
                 + "latencyP95,latencyP99,totalMeasureTimeSeconds,throughputReqPerSec,"
-                + "warmupRequests,measureRequests,concurrency,sleepBetweenRequestsMs";
+                + "warmupRequests,measureRequests,concurrency,sleepBetweenRequestsMs,"
+                + "cpuLoadAvg,memLoadAvg,memLoadMax,"
+                + "gcCount,gcFullCount,gcTotalPauseMs,gcMaxPauseMs,gcOverheadPercent,gcPeakHeapAfterMb,"
+                + "repetition";
         String dataRow = "PAYLOAD_HEAVY_JSON,200000,/json?n=200000," + configName + ",img:jvm,"
-                + jvmFlags + ",ACTUATOR_READINESS,1200,0.25,10,0.015,0.012,0.020,0.022,1.5,66.67,20,100,1,0";
+                + jvmFlags + ",ACTUATOR_READINESS,1200,0.25,10,0.015,0.012,0.020,0.022,1.5,66.67,20,100,1,0,"
+                + "42.5,35.2,38.1,120,2,1658.3,45.7,1.85,256.0,1";
         Files.writeString(file, header + "\n" + dataRow + "\n", StandardCharsets.UTF_8);
     }
 
@@ -218,7 +222,7 @@ class ExcelExporterTest {
     }
 
     @Test
-    void mergeFromCsvDirectory_containsFourSheets() throws IOException {
+    void mergeFromCsvDirectory_containsSixSheets() throws IOException {
         Path csvDir = tempDir.resolve("csvs");
         Files.createDirectory(csvDir);
         writeSampleCsv(csvDir.resolve("results-2026-03-01T10-00-00.000Z.csv"), "baseline", "");
@@ -229,11 +233,13 @@ class ExcelExporterTest {
 
         try (InputStream is = Files.newInputStream(excelOut);
              XSSFWorkbook wb = new XSSFWorkbook(is)) {
-            assertEquals(4, wb.getNumberOfSheets());
+            assertEquals(6, wb.getNumberOfSheets());
             assertEquals("Übersicht (alle Runs)", wb.getSheetName(0));
             assertEquals("Latenzen (alle Runs)", wb.getSheetName(1));
             assertEquals("Startup (alle Runs)", wb.getSheetName(2));
-            assertEquals("Hinweis Ressourcen", wb.getSheetName(3));
+            assertEquals("Ressourcen (alle Runs)", wb.getSheetName(3));
+            assertEquals("Zusammenfassung", wb.getSheetName(4));
+            assertEquals("Ranking", wb.getSheetName(5));
         }
     }
 
@@ -310,6 +316,16 @@ class ExcelExporterTest {
         assertEquals(100, row.measureReqs());
         assertEquals(1, row.concurrency());
         assertEquals(0, row.sleepMs());
+        assertEquals(42.5, row.cpuLoadAvg(), 0.01);
+        assertEquals(35.2, row.memLoadAvg(), 0.01);
+        assertEquals(38.1, row.memLoadMax(), 0.01);
+        assertEquals(120, row.gcCount());
+        assertEquals(2, row.gcFullCount());
+        assertEquals(1658.3, row.gcTotalPauseMs(), 0.1);
+        assertEquals(45.7, row.gcMaxPauseMs(), 0.1);
+        assertEquals(1.85, row.gcOverheadPercent(), 0.01);
+        assertEquals(256.0, row.gcPeakHeapAfterMb(), 0.1);
+        assertEquals(1, row.repetition());
     }
 
     @Test
@@ -336,9 +352,14 @@ class ExcelExporterTest {
         String header = "scenario,workloadN,workloadPath,configName,dockerImage,effectiveJavaToolOptions,"
                 + "readinessCheckUsed,readinessMs,firstSeconds,latencyCount,latencyMean,latencyP50,"
                 + "latencyP95,latencyP99,totalMeasureTimeSeconds,throughputReqPerSec,"
-                + "warmupRequests,measureRequests,concurrency,sleepBetweenRequestsMs";
-        String row1 = "ALLOC_HEAVY_OK,1000,/alloc?n=1000,baseline,img:jvm,,ACTUATOR_HEALTH,500,0.1,5,0.01,0.008,0.015,0.02,0.5,200,10,50,2,50";
-        String row2 = "ALLOC_HEAVY_OK,1000,/alloc?n=1000,zgc,img:jvm,-XX:+UseZGC,ACTUATOR_HEALTH,600,0.12,5,0.011,0.009,0.016,0.021,0.55,180,10,50,2,50";
+                + "warmupRequests,measureRequests,concurrency,sleepBetweenRequestsMs,"
+                + "cpuLoadAvg,memLoadAvg,memLoadMax,"
+                + "gcCount,gcFullCount,gcTotalPauseMs,gcMaxPauseMs,gcOverheadPercent,gcPeakHeapAfterMb,"
+                + "repetition";
+        String row1 = "ALLOC_HEAVY_OK,1000,/alloc?n=1000,baseline,img:jvm,,ACTUATOR_HEALTH,500,0.1,5,0.01,0.008,0.015,0.02,0.5,200,10,50,2,50,"
+                + "30.0,25.0,28.0,80,0,500.0,20.0,1.2,128.0,1";
+        String row2 = "ALLOC_HEAVY_OK,1000,/alloc?n=1000,zgc,img:jvm,-XX:+UseZGC,ACTUATOR_HEALTH,600,0.12,5,0.011,0.009,0.016,0.021,0.55,180,10,50,2,50,"
+                + "35.0,28.0,32.0,60,1,400.0,15.0,0.9,150.0,1";
         Files.writeString(csv, header + "\n" + row1 + "\n" + row2 + "\n", StandardCharsets.UTF_8);
 
         List<ExcelExporter.CsvRow> rows = ExcelExporter.parseCsv(csv, "ts");
@@ -377,14 +398,111 @@ class ExcelExporterTest {
         String header = "scenario,workloadN,workloadPath,configName,dockerImage,effectiveJavaToolOptions,"
                 + "readinessCheckUsed,readinessMs,firstSeconds,latencyCount,latencyMean,latencyP50,"
                 + "latencyP95,latencyP99,totalMeasureTimeSeconds,throughputReqPerSec,"
-                + "warmupRequests,measureRequests,concurrency,sleepBetweenRequestsMs";
+                + "warmupRequests,measureRequests,concurrency,sleepBetweenRequestsMs,"
+                + "cpuLoadAvg,memLoadAvg,memLoadMax,"
+                + "gcCount,gcFullCount,gcTotalPauseMs,gcMaxPauseMs,gcOverheadPercent,gcPeakHeapAfterMb,"
+                + "repetition";
         // Quoted value with commas inside
         String dataRow = "PAYLOAD_HEAVY_JSON,200000,/json?n=200000,test,img:jvm,\"-XX:+UseZGC, -Xmx1g\","
-                + "ACTUATOR_READINESS,1000,0.2,10,0.01,0.008,0.015,0.02,1.0,100,20,100,1,0";
+                + "ACTUATOR_READINESS,1000,0.2,10,0.01,0.008,0.015,0.02,1.0,100,20,100,1,0,"
+                + "40.0,30.0,35.0,100,1,800.0,30.0,1.5,200.0,1";
         Files.writeString(csv, header + "\n" + dataRow + "\n", StandardCharsets.UTF_8);
 
         List<ExcelExporter.CsvRow> rows = ExcelExporter.parseCsv(csv, "ts");
         assertEquals(1, rows.size());
         assertEquals("-XX:+UseZGC, -Xmx1g", rows.get(0).jvmFlags());
+    }
+
+    // ======================== Zusammenfassung (Aggregation) ========================
+
+    @Test
+    void mergeFromCsvDirectory_zusammenfassungGroupsByConfig() throws IOException {
+        Path csvDir = tempDir.resolve("csvs-agg");
+        Files.createDirectory(csvDir);
+        // Zwei CSVs fuer "baseline" (simuliert 2 Repetitionen)
+        writeSampleCsv(csvDir.resolve("results-2026-03-01T10-00-00.000Z.csv"), "baseline", "");
+        writeSampleCsv(csvDir.resolve("results-2026-03-02T10-00-00.000Z.csv"), "baseline", "");
+        writeSampleCsv(csvDir.resolve("results-2026-03-03T10-00-00.000Z.csv"), "zgc", "-XX:+UseZGC");
+
+        Path excelOut = tempDir.resolve("merged-agg.xlsx");
+        ExcelExporter.mergeFromCsvDirectory(csvDir, excelOut);
+
+        try (InputStream is = Files.newInputStream(excelOut);
+             XSSFWorkbook wb = new XSSFWorkbook(is)) {
+            XSSFSheet sheet = wb.getSheet("Zusammenfassung");
+            assertNotNull(sheet, "Zusammenfassung sheet must exist");
+            // 2 config groups: baseline (n=2), zgc (n=1)
+            assertEquals(2, sheet.getLastRowNum()); // row 0=header, rows 1-2=data
+            // Check baseline n=2
+            assertEquals(2.0, sheet.getRow(1).getCell(1).getNumericCellValue(), 0.01);
+            // Check zgc n=1
+            assertEquals(1.0, sheet.getRow(2).getCell(1).getNumericCellValue(), 0.01);
+        }
+    }
+
+    @Test
+    void mergeFromCsvDirectory_zusammenfassungHasMeanColumns() throws IOException {
+        Path csvDir = tempDir.resolve("csvs-agg2");
+        Files.createDirectory(csvDir);
+        writeSampleCsv(csvDir.resolve("results-2026-03-01T10-00-00.000Z.csv"), "baseline", "");
+        writeSampleCsv(csvDir.resolve("results-2026-03-02T10-00-00.000Z.csv"), "zgc", "-XX:+UseZGC");
+
+        Path excelOut = tempDir.resolve("merged-agg2.xlsx");
+        ExcelExporter.mergeFromCsvDirectory(csvDir, excelOut);
+
+        try (InputStream is = Files.newInputStream(excelOut);
+             XSSFWorkbook wb = new XSSFWorkbook(is)) {
+            XSSFSheet sheet = wb.getSheet("Zusammenfassung");
+            // Header row should contain "Readiness (ms) Mean"
+            String firstMetricHeader = sheet.getRow(0).getCell(2).getStringCellValue();
+            assertTrue(firstMetricHeader.contains("Readiness"), "First metric should be Readiness");
+            assertTrue(firstMetricHeader.contains("Mean"), "Should contain Mean");
+            // Readiness mean for baseline = 1200.0
+            assertEquals(1200.0, sheet.getRow(1).getCell(2).getNumericCellValue(), 0.1);
+        }
+    }
+
+    // ======================== Ranking ========================
+
+    @Test
+    void mergeFromCsvDirectory_rankingShowsRelativeValues() throws IOException {
+        Path csvDir = tempDir.resolve("csvs-rank");
+        Files.createDirectory(csvDir);
+        writeSampleCsv(csvDir.resolve("results-2026-03-01T10-00-00.000Z.csv"), "baseline", "");
+        writeSampleCsv(csvDir.resolve("results-2026-03-02T10-00-00.000Z.csv"), "zgc", "-XX:+UseZGC");
+
+        Path excelOut = tempDir.resolve("merged-rank.xlsx");
+        ExcelExporter.mergeFromCsvDirectory(csvDir, excelOut);
+
+        try (InputStream is = Files.newInputStream(excelOut);
+             XSSFWorkbook wb = new XSSFWorkbook(is)) {
+            XSSFSheet sheet = wb.getSheet("Ranking");
+            assertNotNull(sheet, "Ranking sheet must exist");
+            // 2 configs
+            assertEquals(2, sheet.getLastRowNum());
+            // Baseline should have 100% relative value (col 3 = Readiness rel.)
+            assertEquals(100.0, sheet.getRow(1).getCell(3).getNumericCellValue(), 0.01);
+        }
+    }
+
+    @Test
+    void mergeFromCsvDirectory_rankingBaselineIsFirst() throws IOException {
+        Path csvDir = tempDir.resolve("csvs-rank2");
+        Files.createDirectory(csvDir);
+        writeSampleCsv(csvDir.resolve("results-2026-03-01T10-00-00.000Z.csv"), "01-baseline", "");
+        writeSampleCsv(csvDir.resolve("results-2026-03-02T10-00-00.000Z.csv"), "02-zgc", "-XX:+UseZGC");
+
+        Path excelOut = tempDir.resolve("merged-rank2.xlsx");
+        ExcelExporter.mergeFromCsvDirectory(csvDir, excelOut);
+
+        try (InputStream is = Files.newInputStream(excelOut);
+             XSSFWorkbook wb = new XSSFWorkbook(is)) {
+            XSSFSheet sheet = wb.getSheet("Ranking");
+            // First data row should be the baseline
+            assertEquals("01-baseline", sheet.getRow(1).getCell(0).getStringCellValue());
+            // All relative values for baseline should be 100%
+            // col 3 = first rel. column (Readiness rel.)
+            assertEquals(100.0, sheet.getRow(1).getCell(3).getNumericCellValue(), 0.01);
+        }
     }
 }

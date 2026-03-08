@@ -92,13 +92,23 @@ public class BenchCli {
         try {
             BenchmarkRunner runner = new BenchmarkRunner(plan, scenario, workloadN, profile, repetitions);
 
-            List<RunResult> results = runner.runAll();
-
-            ConsoleSummaryPrinter.print(results);
-
+            // Inkrementelle CSV-Sicherung: nach jedem erfolgreichen Run wird das Ergebnis
+            // sofort an eine Partial-CSV angehaengt, damit Teilergebnisse bei spaeteren
+            // Fehlern (OOM-Kill, Verbindungsabbruch, etc.) nicht verloren gehen.
             Path outDir = Path.of("bench-results");
             Files.createDirectories(outDir);
             String stamp = DateTimeFormatter.ISO_INSTANT.format(Instant.now()).replace(":", "-");
+            Path partialCsv = outDir.resolve("results-" + stamp + "-partial.csv");
+
+            List<RunResult> results = runner.runAll(result -> {
+                try {
+                    ResultExporters.appendCsvRow(partialCsv, result);
+                } catch (Exception e) {
+                    System.err.println("[WARN] Incremental CSV save failed: " + e.getMessage());
+                }
+            });
+
+            ConsoleSummaryPrinter.print(results);
 
             ResultExporters.writeJson(results, outDir.resolve("results-" + stamp + ".json"));
             ResultExporters.writeCsv(results, outDir.resolve("results-" + stamp + ".csv"));
@@ -106,6 +116,11 @@ public class BenchCli {
 
             // Automatisch das Vergleichs-Excel aktualisieren (alle CSVs zusammen)
             ExcelExporter.mergeFromCsvDirectory(outDir, outDir.resolve("benchmark-vergleich.xlsx"));
+
+            // Partial-CSV aufraemen — die vollstaendige CSV existiert jetzt
+            try {
+                Files.deleteIfExists(partialCsv);
+            } catch (Exception ignored) {}
         } finally {
             // EBICS: TravicLink-Bankserver stoppen
             if (travicLink != null) {

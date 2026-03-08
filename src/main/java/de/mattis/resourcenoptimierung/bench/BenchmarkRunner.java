@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Random;
+import java.util.function.Consumer;
 
 /**
  * Fuehrt einen vollstaendigen Benchmark-Durchlauf aus.
@@ -90,12 +91,35 @@ public class BenchmarkRunner {
      * zufaellig permutiert, um systematische Reihenfolge-Effekte
      * (z.B. Cache-Waerme, Thermal Throttling) zu reduzieren.
      *
-     * @return Ergebnisse aller Runs (repetitions * configs), flache Liste
-     * @throws Exception wenn ein einzelner Run fehlschlaegt
+     * Einzelne fehlgeschlagene Configs werden uebersprungen;
+     * die restlichen Runs laufen weiter.
+     *
+     * @return Ergebnisse aller erfolgreichen Runs, flache Liste
+     * @throws Exception wenn ein nicht-abfangbarer Fehler auftritt
      */
     public List<RunResult> runAll() throws Exception {
+        return runAll(r -> {});
+    }
+
+    /**
+     * Fuehrt alle Konfigurationen aus und ruft fuer jedes Ergebnis den Callback auf.
+     *
+     * Der Callback wird unmittelbar nach jedem erfolgreichen Run aufgerufen.
+     * Typischer Einsatz: inkrementelle CSV-Sicherung, damit Teilergebnisse
+     * auch bei spaeteren Fehlern nicht verloren gehen.
+     *
+     * Einzelne fehlgeschlagene Configs werden uebersprungen;
+     * die restlichen Runs laufen weiter.
+     *
+     * @param onResult Callback fuer jedes erfolgreich abgeschlossene Ergebnis
+     * @return Ergebnisse aller erfolgreichen Runs, flache Liste
+     * @throws Exception wenn ein nicht-abfangbarer Fehler auftritt
+     */
+    public List<RunResult> runAll(Consumer<RunResult> onResult) throws Exception {
         List<RunResult> results = new ArrayList<>();
         Random rng = new Random();
+        int totalRuns = repetitions * plan.configs.size();
+        int failures = 0;
 
         for (int rep = 1; rep <= repetitions; rep++) {
             if (repetitions > 1) {
@@ -108,11 +132,27 @@ public class BenchmarkRunner {
             Collections.shuffle(shuffled, rng);
 
             for (BenchmarkConfig cfg : shuffled) {
-                RunResult result = new SingleRun(cfg, scenario, n, profile,
-                        8080, java.time.Duration.ofSeconds(120), rep).execute();
-                results.add(result);
+                try {
+                    RunResult result = new SingleRun(cfg, scenario, n, profile,
+                            8080, java.time.Duration.ofSeconds(120), rep).execute();
+                    results.add(result);
+                    onResult.accept(result);
+                } catch (Exception e) {
+                    failures++;
+                    System.err.println();
+                    System.err.println("[ERROR] Config '" + cfg.name() + "' rep " + rep
+                            + " failed: " + e.getMessage());
+                    System.err.println("[ERROR] Skipping this config, continuing with next.");
+                    System.err.println();
+                }
             }
         }
+
+        if (failures > 0) {
+            System.err.println();
+            System.err.println("WARNING: " + failures + " of " + totalRuns + " runs failed and were skipped.");
+        }
+
         return results;
     }
 

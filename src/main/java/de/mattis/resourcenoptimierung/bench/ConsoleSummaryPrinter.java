@@ -287,13 +287,8 @@ public final class ConsoleSummaryPrinter {
      * @return formatierte Zeichenkette wie "1234 +/- 56"
      */
     private static String fmtMeanStddev(double[] values, String fmt) {
-        double sum = 0;
-        for (double v : values) sum += v;
-        double mean = sum / values.length;
-
-        double sqSum = 0;
-        for (double v : values) sqSum += (v - mean) * (v - mean);
-        double stddev = Math.sqrt(sqSum / values.length);
+        double mean = BenchStats.mean(values);
+        double stddev = values.length >= 2 ? BenchStats.sampleStddev(values) : 0.0;
 
         return String.format(fmt + " +/- " + fmt, mean, stddev);
     }

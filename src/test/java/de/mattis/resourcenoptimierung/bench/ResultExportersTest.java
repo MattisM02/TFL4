@@ -207,4 +207,57 @@ class ResultExportersTest {
         assertTrue(json.contains("\"effectiveJavaToolOptions\":null"));
         assertTrue(json.contains("\"readinessCheckUsed\":null"));
     }
+
+    // ==================== appendCsvRow ====================
+
+    @Test
+    void appendCsvRow_createsFileWithHeaderOnFirstCall() throws IOException {
+        Path csvPath = tempDir.resolve("incremental.csv");
+        RunResult result = createSampleResult("baseline", BenchmarkScenario.PAYLOAD_HEAVY_JSON);
+
+        ResultExporters.appendCsvRow(csvPath, result);
+
+        assertTrue(Files.exists(csvPath));
+        List<String> lines = Files.readAllLines(csvPath);
+        assertEquals(2, lines.size(), "Should have header + 1 data row");
+        assertTrue(lines.get(0).contains("scenario"));
+        assertTrue(lines.get(0).contains("configName"));
+        assertTrue(lines.get(1).contains("baseline"));
+    }
+
+    @Test
+    void appendCsvRow_appendsWithoutDuplicateHeader() throws IOException {
+        Path csvPath = tempDir.resolve("incremental.csv");
+        RunResult r1 = createSampleResult("baseline", BenchmarkScenario.PAYLOAD_HEAVY_JSON);
+        RunResult r2 = createSampleResult("zgc", BenchmarkScenario.PAYLOAD_HEAVY_JSON);
+
+        ResultExporters.appendCsvRow(csvPath, r1);
+        ResultExporters.appendCsvRow(csvPath, r2);
+
+        List<String> lines = Files.readAllLines(csvPath);
+        assertEquals(3, lines.size(), "Should have header + 2 data rows");
+        assertTrue(lines.get(0).contains("scenario"), "First line should be header");
+        assertTrue(lines.get(1).contains("baseline"));
+        assertTrue(lines.get(2).contains("zgc"));
+    }
+
+    @Test
+    void appendCsvRow_matchesWriteCsvOutput() throws IOException {
+        RunResult r1 = createSampleResult("baseline", BenchmarkScenario.PAYLOAD_HEAVY_JSON);
+        RunResult r2 = createSampleResult("zgc", BenchmarkScenario.PAYLOAD_HEAVY_JSON);
+
+        // Write via batch method
+        Path batchCsv = tempDir.resolve("batch.csv");
+        ResultExporters.writeCsv(List.of(r1, r2), batchCsv);
+
+        // Write via incremental method
+        Path incrCsv = tempDir.resolve("incr.csv");
+        ResultExporters.appendCsvRow(incrCsv, r1);
+        ResultExporters.appendCsvRow(incrCsv, r2);
+
+        // Both files should be identical
+        String batchContent = Files.readString(batchCsv);
+        String incrContent = Files.readString(incrCsv);
+        assertEquals(batchContent, incrContent, "Incremental append should produce identical output to batch write");
+    }
 }

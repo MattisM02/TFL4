@@ -424,11 +424,25 @@ public class SingleRun {
     }
 
     /**
+     * Maximale Anzahl Versuche fuer einen einzelnen HTTP-Request.
+     *
+     * Retries fangen "stale keep-alive connection"-Fehler ab, bei denen
+     * der Server die Verbindung geschlossen hat, bevor der Client
+     * seinen naechsten Request senden konnte (IOException:
+     * "HTTP/1.1 header parser received no bytes").
+     */
+    private static final int MAX_REQUEST_ATTEMPTS = 3;
+
+    /**
      * Misst die Latenz eines HTTP-GET Requests in Sekunden.
+     *
+     * Bei IOException (z.B. stale keep-alive connection) wird der Request
+     * bis zu {@link #MAX_REQUEST_ATTEMPTS} Mal wiederholt, mit linearem
+     * Backoff (500ms * Versuchsnummer).
      *
      * @param path Pfad inkl. Query (z.B. "/json?n=200000")
      * @return Latenz in Sekunden
-     * @throws Exception wenn der Request fehlschlaegt oder Status != 200 ist
+     * @throws Exception wenn der Request nach allen Versuchen fehlschlaegt oder Status != 200 ist
      */
     private double measureEndpointSeconds(String path) throws Exception {
         URI uri = URI.create("http://localhost:" + port + path);
@@ -442,15 +456,26 @@ public class SingleRun {
                 .GET()
                 .build();
 
-        long t0 = System.nanoTime();
-        HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
-        long t1 = System.nanoTime();
+        for (int attempt = 1; attempt <= MAX_REQUEST_ATTEMPTS; attempt++) {
+            try {
+                long t0 = System.nanoTime();
+                HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
+                long t1 = System.nanoTime();
 
-        if (resp.statusCode() != 200) {
-            throw new RuntimeException("GET " + path + " failed: " + resp.statusCode() + " body=" + resp.body());
+                if (resp.statusCode() != 200) {
+                    throw new RuntimeException("GET " + path + " failed: " + resp.statusCode() + " body=" + resp.body());
+                }
+
+                return (t1 - t0) / 1_000_000_000.0;
+            } catch (IOException e) {
+                if (attempt == MAX_REQUEST_ATTEMPTS) throw e;
+                long backoffMs = 500L * attempt;
+                System.err.printf("[RETRY] %s attempt %d/%d failed: %s — retrying in %dms%n",
+                        cfg.name(), attempt, MAX_REQUEST_ATTEMPTS, e.getMessage(), backoffMs);
+                Thread.sleep(backoffMs);
+            }
         }
-
-        return (t1 - t0) / 1_000_000_000.0;
+        throw new AssertionError("unreachable");
     }
 
     /**
