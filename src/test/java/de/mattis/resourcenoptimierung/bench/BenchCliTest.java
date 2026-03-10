@@ -257,10 +257,10 @@ class BenchCliTest {
     void resolvePlan_noJvmArgs_returnsCombinedPlan() {
         String[] args = {"--scenario", "json"};
         BenchmarkPlan plan = BenchCli.resolvePlan(args, BenchmarkScenario.PAYLOAD_HEAVY_JSON);
-        assertEquals(32, plan.configs.size(),
-                "Without --profiles, combined plan should have 32 configs");
+        assertEquals(34, plan.configs.size(),
+                "Without --profiles, combined plan should have 34 configs");
         assertEquals("baseline", plan.configs.get(0).name());
-        assertEquals("P01-hotspot-standard", plan.configs.get(20).name());
+        assertEquals("P01-hotspot-standard", plan.configs.get(21).name());
     }
 
     @Test
@@ -316,7 +316,7 @@ class BenchCliTest {
     void resolvePlan_ebicsUpload_defaultPlan_usesEkImages() {
         String[] args = {};
         BenchmarkPlan plan = BenchCli.resolvePlan(args, BenchmarkScenario.EBICS_UPLOAD);
-        assertEquals(32, plan.configs.size(), "EBICS combined plan should have 32 configs");
+        assertEquals(34, plan.configs.size(), "EBICS combined plan should have 34 configs");
         // Alle Configs muessen auf EK-Images enden
         for (BenchmarkConfig cfg : plan.configs) {
             assertTrue(cfg.dockerImage().endsWith("-ek"),
@@ -344,7 +344,7 @@ class BenchCliTest {
     void resolvePlan_nonEbics_combinedPlan_defaultImagesNotEk() {
         String[] args = {};
         BenchmarkPlan plan = BenchCli.resolvePlan(args, BenchmarkScenario.ALLOC_HEAVY_OK);
-        assertEquals(32, plan.configs.size());
+        assertEquals(34, plan.configs.size());
         // No image should end with -ek in non-EBICS mode
         for (BenchmarkConfig cfg : plan.configs) {
             assertFalse(cfg.dockerImage().endsWith("-ek"),
@@ -358,7 +358,7 @@ class BenchCliTest {
     void resolvePlan_profilesFlag_returnsProfilePlan() {
         String[] args = {"--profiles"};
         BenchmarkPlan plan = BenchCli.resolvePlan(args, BenchmarkScenario.PAYLOAD_HEAVY_JSON);
-        assertEquals(12, plan.configs.size(), "Profile plan should have 12 configs (P01-P12)");
+        assertEquals(13, plan.configs.size(), "Profile plan should have 13 configs (P01-P13)");
         assertTrue(plan.configs.get(0).name().startsWith("P01"));
     }
 
@@ -366,7 +366,7 @@ class BenchCliTest {
     void resolvePlan_profilesFlag_ebics_usesEbicsImages() {
         String[] args = {"--profiles"};
         BenchmarkPlan plan = BenchCli.resolvePlan(args, BenchmarkScenario.EBICS_UPLOAD);
-        assertEquals(12, plan.configs.size());
+        assertEquals(13, plan.configs.size());
         // P01 (HOTSPOT) should use jvm-ek
         assertEquals("tfl4-ek-bench:jvm-ek", plan.configs.get(0).dockerImage());
         // P04 (OPENJ9) should use openj9-ek

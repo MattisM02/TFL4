@@ -25,7 +25,7 @@ import java.util.List;
  *   <li><b>JVM-Interna</b>: Interne JVM-Optionen (CompressedOops, CompactObjectHeaders)</li>
  *   <li><b>Cloud-relevant</b>: Container-optimierte Einstellungen</li>
  *   <li><b>Kombination</b>: Mehrere Flags kombiniert</li>
- *   <li><b>Laufzeitprofil</b>: Standardisierte Laufzeitprofile (P01–P12)</li>
+     *   <li><b>Laufzeitprofil</b>: Standardisierte Laufzeitprofile (P01–P13)</li>
  * </ul>
  */
 public class BenchmarkPlan {
@@ -61,9 +61,9 @@ public class BenchmarkPlan {
     }
 
     /**
-     * Erzeugt den vollstaendigen Benchmark-Plan (32 Konfigurationen).
+     * Erzeugt den vollstaendigen Benchmark-Plan (34 Konfigurationen).
      *
-     * <p>Enthaelt alle Flag-Analyse-Konfigurationen (20) und alle Laufzeitprofile (12).
+     * <p>Enthaelt alle Flag-Analyse-Konfigurationen (21) und alle Laufzeitprofile (13).
      * Jede Konfiguration traegt Metadaten (Kategorie, Laufzeitmodell) fuer Excel-Gruppierung.
      *
      * <h3>Garbage-Collector-Vergleich (5)</h3>
@@ -94,19 +94,20 @@ public class BenchmarkPlan {
      *   <li>tiered-stop-1 — TieredStopAtLevel=1: Nur C1-Kompilierung, schnellerer Start, kein C2-Overhead</li>
      * </ul>
      *
-     * <h3>Flag-Kombinationen (8)</h3>
+     * <h3>Flag-Kombinationen (9)</h3>
      * <ul>
      *   <li>serial-gc-256m — SerialGC + 256 MB Heap: minimaler Footprint</li>
      *   <li>zgc-heap-512m — ZGC + 512 MB Heap: mehr Spielraum fuer concurrent GC</li>
      *   <li>shenandoah-heap-512m — Shenandoah + 512 MB Heap: mehr Spielraum fuer concurrent GC</li>
      *   <li>tiered-stop-1-serial — C1-only + SerialGC: schnellster Start + bester GC auf 1 CPU</li>
      *   <li>g1-coh-on — G1 + Compact Object Headers: reduziert Objekt-Overhead und GC-Druck</li>
+     *   <li>zgc-coh-on — ZGC + Compact Object Headers: Low-Latency-GC mit kleinerem Live-Set</li>
      *   <li>parallel-gc-256m — ParallelGC + 256 MB Heap: Durchsatz-GC mit kleinem Heap</li>
      *   <li>g1-large-young — G1 + NewRatio=1: 50% Young Gen, weniger Full GCs erwartet</li>
      *   <li>zgc-tiered-stop-1 — ZGC + C1-only: niedrige Pausen mit schnellem Start (Serverless/Cold-Start)</li>
      * </ul>
      *
-     * <h3>Laufzeitprofile (12, P01–P12)</h3>
+     * <h3>Laufzeitprofile (13, P01–P13)</h3>
      * <ul>
      *   <li>P01-hotspot-standard — G1GC + 75% RAM (Standard-Cloud-Deployment)</li>
      *   <li>P02-hotspot-fast-startup — G1GC + C1-only (Serverless/Cold-Start)</li>
@@ -120,9 +121,10 @@ public class BenchmarkPlan {
      *   <li>P10-openj9-heap-256m — OpenJ9 + 256 MB Heap (Speicher-limitiert)</li>
      *   <li>P11-hotspot-cds — HotSpot + Dynamic CDS (Startup-optimiert)</li>
      *   <li>P12-graalvm-jit — GraalVM JIT-Compiler (optimierte Codegenerierung)</li>
+     *   <li>P13-virtual-threads — HotSpot + Virtual Threads (Project Loom): Tomcat nutzt VT statt Platform-Threads</li>
      * </ul>
      *
-     * @return Benchmark-Plan mit 32 Konfigurationen
+     * @return Benchmark-Plan mit 34 Konfigurationen
      */
     public static BenchmarkPlan defaultPlan() {
         String img = "tfl4-ek-bench:jvm";
@@ -133,6 +135,7 @@ public class BenchmarkPlan {
         String imgCds      = "tfl4-ek-bench:jvm-cds";
         String imgGraalJit = "tfl4-ek-bench:graalvm-jit";
         String imgNative   = "tfl4-ek-bench:native";
+        String imgVt       = "tfl4-ek-bench:jvm-vt";
 
         return new BenchmarkPlan(List.of(
                 // ==================== Garbage-Collector-Vergleich ====================
@@ -281,6 +284,14 @@ public class BenchmarkPlan {
                         model
                 ),
                 new BenchmarkConfig(
+                        "zgc-coh-on",
+                        img,
+                        List.of("-XX:+UseZGC", "-XX:+UnlockExperimentalVMOptions", "-XX:+UseCompactObjectHeaders"),
+                        rt,
+                        "Kombination",
+                        model
+                ),
+                new BenchmarkConfig(
                         "parallel-gc-256m",
                         img,
                         List.of("-XX:+UseParallelGC", "-Xmx256m"),
@@ -401,17 +412,25 @@ public class BenchmarkPlan {
                         RuntimeType.HOTSPOT,
                         "Laufzeitprofil",
                         "GraalVM JIT"
+                ),
+                new BenchmarkConfig(
+                        "P13-virtual-threads",
+                        imgVt,
+                        List.of("-XX:+UseG1GC", "-XX:MaxRAMPercentage=75"),
+                        RuntimeType.HOTSPOT,
+                        "Laufzeitprofil",
+                        "VirtualThreads"
                 )
         ));
     }
 
     /**
-     * Erzeugt einen Plan mit nur den Laufzeitprofilen (P01–P12).
+     * Erzeugt einen Plan mit nur den Laufzeitprofilen (P01–P13).
      *
-     * <p>Enthaelt 12 standardisierte Profile, die verschiedene JVM-Implementierungen
+     * <p>Enthaelt 13 standardisierte Profile, die verschiedene JVM-Implementierungen
      * und Laufzeitmodelle vergleichen.
      *
-     * @return Benchmark-Plan mit 12 Laufzeitprofilen
+     * @return Benchmark-Plan mit 13 Laufzeitprofilen
      */
     public static BenchmarkPlan profilePlan() {
         BenchmarkPlan full = defaultPlan();
@@ -470,7 +489,7 @@ public class BenchmarkPlan {
      * <p>Diese Methode existiert fuer Rueckwaertskompatibilitaet mit BenchCli
      * und Tests, die {@code combinedPlan()} aufrufen.
      *
-     * @return vollstaendiger Plan mit 32 Konfigurationen
+     * @return vollstaendiger Plan mit 34 Konfigurationen
      */
     public static BenchmarkPlan combinedPlan() {
         return defaultPlan();

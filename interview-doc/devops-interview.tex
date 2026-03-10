@@ -7,8 +7,8 @@ Container-Constraints (1\,CPU, 768\,MB RAM)?
 
 Dieses Projekt ist das \textbf{Mess-Werkzeug} für eine wissenschaftliche
 Arbeit zum Thema „Ressourcenoptimierung von javabasierten
-Containeranwendungen im Cloudbetrieb". Es vergleicht \textbf{32
-	Konfigurationen} (20 Flag-Varianten + 12 Laufzeitprofile) automatisiert
+Containeranwendungen im Cloudbetrieb". Es vergleicht \textbf{34
+	Konfigurationen} (21 Flag-Varianten + 13 Laufzeitprofile) automatisiert
 und reproduzierbar.
 
 Das Framework besteht aus zwei Teilen:
@@ -58,19 +58,19 @@ Unterschiede entstehen nur durch die JVM-Flags.
 \begin{longtable}[]{@{}
 	>{\raggedright\arraybackslash}p{0.28\linewidth}
 	>{\raggedright\arraybackslash}p{0.67\linewidth}@{}}
-	\thead{Gruppe}     & \thead{Konfigurationen}                                 \\
+	\thead{Gruppe}     & \thead{Konfigurationen}                                     \\
 	\endhead
 	\rowcolor{rowalt}
-	Garbage Collectors & G1GC (Default), ZGC, Shenandoah, Parallel GC, Serial GC \\
-	G1-Tuning          & MaxGCPauseMillis=50, Heap 256m, Heap 512m               \\
+	Garbage Collectors & G1GC (Default), ZGC, Shenandoah, Parallel GC, Serial GC (5) \\
+	G1-Tuning          & MaxGCPauseMillis=50, Heap 256m, Heap 512m (3)               \\
 	\rowcolor{rowalt}
-	JVM-Interna        & Compressed OOPs aus, Compact Object Headers (JEP 450)   \\
-	Cloud-Relevanz     & MaxRAMPercentage=75, TieredStopAtLevel=1 (kein C2)      \\
+	JVM-Interna        & Compressed OOPs aus, Compact Object Headers (JEP 450) (2)   \\
+	Cloud-Relevanz     & MaxRAMPercentage=75, TieredStopAtLevel=1 (kein C2) (2)      \\
 	\rowcolor{rowalt}
-	Kombinationen      & 8 Konfigurationen -- siehe Tabelle unten                \\
+	Kombinationen      & +9 Konfigurationen -- siehe Tabelle unten                   \\
 \end{longtable}
 
-\noindent Die 8 Flag-Kombinationen im Detail:
+\noindent Die 9 Flag-Kombinationen im Detail:
 
 \begin{longtable}[]{@{}
 	>{\raggedright\arraybackslash}p{0.29\linewidth}
@@ -86,13 +86,15 @@ Unterschiede entstehen nur durch die JVM-Flags.
 	\texttt{tiered-stop-1-serial} & \texttt{-XX:TieredStopAtLevel=1 -XX:+UseSerialGC}                                                                   & C1-only + Serial GC: schnellster Start, bester GC auf 1 CPU                    \\
 	\rowcolor{rowalt}
 	\texttt{g1-coh-on}            & \texttt{-XX:+UseG1GC}\newline\texttt{-XX:+UnlockExperimentalVMOptions}\newline\texttt{-XX:+UseCompactObjectHeaders} & G1 + Compact Object Headers (JEP 450): kleinere Objekte, weniger GC-Druck      \\
+	\texttt{zgc-coh-on}           & \texttt{-XX:+UseZGC}\newline\texttt{-XX:+UnlockExperimentalVMOptions}\newline\texttt{-XX:+UseCompactObjectHeaders}  & ZGC + Compact Object Headers: Low-Latency-GC mit kleinerem Live-Set            \\
+	\rowcolor{rowalt}
 	\texttt{parallel-gc-256m}     & \texttt{-XX:+UseParallelGC -Xmx256m}                                                                                & Durchsatz-GC mit kleinem Heap unter Memory-Pressure                            \\
 	\rowcolor{rowalt}
 	\texttt{g1-large-young}       & \texttt{-XX:+UseG1GC -XX:NewRatio=1}                                                                                & G1 mit 50\% Young Gen (statt \textasciitilde{}33\%), weniger Full GCs erwartet \\
 	\texttt{zgc-tiered-stop-1}    & \texttt{-XX:+UseZGC -XX:TieredStopAtLevel=1}                                                                        & ZGC + C1-only: niedrige Pausen mit schnellem Start (Serverless)                \\
 \end{longtable}
 
-\subsubsection{Ebene 2: 12 Laufzeitprofile}
+\subsubsection{Ebene 2: 13 Laufzeitprofile}
 \label{sec:ebene2}
 
 Unterschiedliche Docker-Images, unterschiedliche JVM-Implementierungen:
@@ -121,6 +123,8 @@ Unterschiedliche Docker-Images, unterschiedliche JVM-Implementierungen:
 	\rowcolor{rowalt}
 	P11 CDS                & \texttt{eclipse-temurin:25-jre}                    & Dynamic Class Data Sharing (schnellerer Start)                          \\
 	P12 GraalVM JIT        & \texttt{ghcr.io/graalvm/jdk-community:25}          & GraalVM JVMCI statt HotSpot C2                                          \\
+	\rowcolor{rowalt}
+	P13 Virtual Threads    & \texttt{eclipse-temurin:25-jre}                    & Project Loom: Tomcat nutzt Virtual Threads statt Platform-Threads       \\
 \end{longtable}
 
 \subsection{Was wird gemessen?}

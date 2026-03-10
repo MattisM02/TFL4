@@ -84,36 +84,39 @@ class DockerImageBuilderTest {
     void collectTags_defaultPlan_returnsFiveTags() {
         BenchmarkPlan plan = BenchmarkPlan.defaultPlan();
         Set<String> tags = DockerImageBuilder.collectUniqueImageTags(plan);
-        assertEquals(5, tags.size());
+        assertEquals(6, tags.size());
         assertTrue(tags.contains("tfl4-ek-bench:jvm"));
         assertTrue(tags.contains("tfl4-ek-bench:openj9"));
         assertTrue(tags.contains("tfl4-ek-bench:jvm-cds"));
         assertTrue(tags.contains("tfl4-ek-bench:graalvm-jit"));
         assertTrue(tags.contains("tfl4-ek-bench:native"));
+        assertTrue(tags.contains("tfl4-ek-bench:jvm-vt"));
     }
 
     @Test
     void collectTags_profilePlan_returnsFiveTags() {
         BenchmarkPlan plan = BenchmarkPlan.profilePlan();
         Set<String> tags = DockerImageBuilder.collectUniqueImageTags(plan);
-        assertEquals(5, tags.size());
+        assertEquals(6, tags.size());
         assertTrue(tags.contains("tfl4-ek-bench:jvm"));
         assertTrue(tags.contains("tfl4-ek-bench:openj9"));
         assertTrue(tags.contains("tfl4-ek-bench:jvm-cds"));
         assertTrue(tags.contains("tfl4-ek-bench:graalvm-jit"));
         assertTrue(tags.contains("tfl4-ek-bench:native"));
+        assertTrue(tags.contains("tfl4-ek-bench:jvm-vt"));
     }
 
     @Test
     void collectTags_profilePlan_ebics_returnsFiveEkTags() {
         BenchmarkPlan plan = BenchmarkPlan.profilePlan().withEbicsImages();
         Set<String> tags = DockerImageBuilder.collectUniqueImageTags(plan);
-        assertEquals(5, tags.size());
+        assertEquals(6, tags.size());
         assertTrue(tags.contains("tfl4-ek-bench:jvm-ek"));
         assertTrue(tags.contains("tfl4-ek-bench:openj9-ek"));
         assertTrue(tags.contains("tfl4-ek-bench:jvm-cds-ek"));
         assertTrue(tags.contains("tfl4-ek-bench:graalvm-jit-ek"));
         assertTrue(tags.contains("tfl4-ek-bench:native-ek"));
+        assertTrue(tags.contains("tfl4-ek-bench:jvm-vt-ek"));
     }
 
     @Test
@@ -125,11 +128,11 @@ class DockerImageBuilderTest {
 
     @Test
     void collectTags_duplicateImages_deduplicates() {
-        // Default plan: 32 configs with 5 distinct images
+        // Default plan: 34 configs with 6 distinct images
         BenchmarkPlan plan = BenchmarkPlan.defaultPlan();
-        assertEquals(32, plan.configs.size(), "defaultPlan should have 32 configs");
+        assertEquals(34, plan.configs.size(), "defaultPlan should have 34 configs");
         Set<String> tags = DockerImageBuilder.collectUniqueImageTags(plan);
-        assertEquals(5, tags.size(), "32 configs with 5 distinct images should yield 5 unique tags");
+        assertEquals(6, tags.size(), "34 configs with 6 distinct images should yield 6 unique tags");
     }
 
     @Test
