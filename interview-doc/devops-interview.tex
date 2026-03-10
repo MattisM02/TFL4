@@ -75,25 +75,28 @@ Unterschiedliche Docker-Images, unterschiedliche JVM-Implementierungen:
 
 \begin{longtable}[]{@{}
 	>{\raggedright\arraybackslash}p{0.20\linewidth}
-	>{\raggedright\arraybackslash}p{0.42\linewidth}
+	>{\raggedright\arraybackslash}p{0.40\linewidth}
 	>{\raggedright\arraybackslash}p{0.32\linewidth}@{}}
-	\thead{Profil}           & \thead{Image / Base Image}                         & \thead{Was ist anders?}                        \\
+	\thead{Profil}         & \thead{Image / Base Image}                         & \thead{Was ist anders?}                                                 \\
 	\endhead
 	\rowcolor{rowalt}
-	P01 HotSpot Standard     & \texttt{eclipse-temurin:25-jre}                    & Referenzpunkt (G1 + MaxRAMPercentage=75)       \\
-	P02 Fast Startup         & \texttt{eclipse-temurin:25-jre}                    & TieredStopAtLevel=1 (kein C2)                  \\
+	P01 HotSpot Standard   & \texttt{eclipse-temurin:25-jre}                    & Referenzpunkt (G1 + MaxRAMPercentage=75)                                \\
+	P02 Fast Startup       & \texttt{eclipse-temurin:25-jre}                    & TieredStopAtLevel=1 (kein C2)                                           \\
 	\rowcolor{rowalt}
-	P03 Low Latency          & \texttt{eclipse-temurin:25-jre}                    & ZGC                                            \\
-	P04 OpenJ9               & \texttt{ibm-semeru-runtimes:open-25-jre}           & Andere JVM-Implementierung (IBM)               \\
+	P03 Low Latency        & \texttt{eclipse-temurin:25-jre}                    & ZGC                                                                     \\
+	P04 OpenJ9             & \texttt{ibm-semeru-runtimes:open-25-jre}           & Andere JVM-Implementierung (IBM)                                        \\
 	\rowcolor{rowalt}
-	P05 Native Image         & \texttt{ghcr.io/graalvm/native-image-community:25} & Kein JVM, AOT-kompiliert                       \\
-	P06--P08 OpenJ9 Policies & \texttt{ibm-semeru-runtimes:open-25-jre}           & balanced, optthruput, optavgpause GC           \\
+	P05 Native Image       & \texttt{ghcr.io/graalvm/native-image-community:25} & Kein JVM, AOT-kompiliert                                                \\
+	P06 OpenJ9 balanced    & \texttt{ibm-semeru-runtimes:open-25-jre}           & \texttt{-Xgcpolicy:balanced} (region-basiert, NUMA-aware)               \\
 	\rowcolor{rowalt}
-	P09 HotSpot 256m         & \texttt{eclipse-temurin:25-jre}                    & Heap begrenzt auf 256 MB                       \\
-	P10 OpenJ9 256m          & \texttt{ibm-semeru-runtimes:open-25-jre}           & Heap 256 MB, direkter JVM-Vergleich            \\
+	P07 OpenJ9 optthruput  & \texttt{ibm-semeru-runtimes:open-25-jre}           & \texttt{-Xgcpolicy:optthruput} (paralleler STW-GC, Durchsatz-optimiert) \\
+	P08 OpenJ9 optavgpause & \texttt{ibm-semeru-runtimes:open-25-jre}           & \texttt{-Xgcpolicy:optavgpause} (concurrent MS, Pausen-optimiert)       \\
 	\rowcolor{rowalt}
-	P11 CDS                  & \texttt{eclipse-temurin:25-jre}                    & Dynamic Class Data Sharing (schnellerer Start) \\
-	P12 GraalVM JIT          & \texttt{ghcr.io/graalvm/jdk-community:25}          & GraalVM JVMCI statt HotSpot C2                 \\
+	P09 HotSpot 256m       & \texttt{eclipse-temurin:25-jre}                    & Heap begrenzt auf 256 MB                                                \\
+	P10 OpenJ9 256m        & \texttt{ibm-semeru-runtimes:open-25-jre}           & Heap 256 MB, direkter JVM-Vergleich                                     \\
+	\rowcolor{rowalt}
+	P11 CDS                & \texttt{eclipse-temurin:25-jre}                    & Dynamic Class Data Sharing (schnellerer Start)                          \\
+	P12 GraalVM JIT        & \texttt{ghcr.io/graalvm/jdk-community:25}          & GraalVM JVMCI statt HotSpot C2                                          \\
 \end{longtable}
 
 \subsection{Was wird gemessen?}
