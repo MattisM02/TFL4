@@ -120,6 +120,7 @@ public class BenchmarkRunner {
         Random rng = new Random(42);
         int totalRuns = repetitions * plan.configs.size();
         int failures = 0;
+        long runAllStartNanos = System.nanoTime();
 
         for (int rep = 1; rep <= repetitions; rep++) {
             if (repetitions > 1) {
@@ -137,6 +138,10 @@ public class BenchmarkRunner {
                             BenchDefaults.DEFAULT_HOST_PORT, BenchDefaults.READINESS_TIMEOUT, rep).execute();
                     results.add(result);
                     onResult.accept(result);
+
+                    // Live-ETA ausgeben
+                    double elapsedSec = (System.nanoTime() - runAllStartNanos) / 1_000_000_000.0;
+                    DurationEstimator.printLiveEta(results.size(), totalRuns, elapsedSec, result);
                 } catch (Exception e) {
                     failures++;
                     System.err.println();

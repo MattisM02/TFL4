@@ -11,7 +11,10 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -135,6 +138,7 @@ public class SingleRun {
      * @throws Exception wenn Docker/HTTP/Messung fehlschlaegt oder Readiness nicht erreicht wird
      */
     public RunResult execute() throws Exception {
+        long wallClockStartNanos = System.nanoTime();
         try {
             // 1) Flags berechnen (und im Result speichern)
             //    Fuer JVM-Runs wird aus cfg.jvmArgs() ein String gebaut, der als JAVA_TOOL_OPTIONS gesetzt wird.
@@ -273,13 +277,17 @@ public class SingleRun {
             // 13) Ergebnis bauen
             //     Speichert sowohl die Rohdaten (Latenzen + Docker-Samples) als auch Metadaten,
             //     damit spaetere Auswertung/Exports vollstaendig sind.
+            //     wallClockSeconds erfasst die gesamte Dauer (Container-Start bis hier)
+            //     fuer den DurationEstimator. Die Cleanup-Zeit (~1-2s) kommt noch hinzu,
+            //     wird aber nicht mitgemessen, weil das Ergebnis vorher gebaut wird.
+            double wallClockSeconds = (System.nanoTime() - wallClockStartNanos) / 1_000_000_000.0;
             RunResult result = new RunResult(
                     new RunResult.Metadata(cfg.name(), cfg.dockerImage(),
                             effectiveJavaToolOptions, readinessCheckUsed, startupLogSnippet,
                             scenario, workloadN, path, profile, repetition,
                             cfg.category(), cfg.runtimeModel()),
                     new RunResult.Timing(readinessMs, firstSeconds, latenciesSeconds,
-                            totalMeasureTimeSeconds, throughputReqPerSec),
+                            totalMeasureTimeSeconds, throughputReqPerSec, wallClockSeconds),
                     new RunResult.Docker(dockerIdleSamples, dockerLoadSamples,
                             dockerPostSamples, gcSummary, gcLogPath));
 

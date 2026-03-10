@@ -82,7 +82,7 @@ public final class ResultExporters {
                 "warmupRequests,measureRequests,concurrency,sleepBetweenRequestsMs," +
                 "cpuLoadAvg,memLoadAvg,memLoadMax," +
                 "gcCount,gcFullCount,gcTotalPauseMs,gcMaxPauseMs,gcOverheadPercent,gcPeakHeapAfterMb," +
-                "repetition,category,runtimeModel");
+                "repetition,category,runtimeModel,wallClockSeconds");
         w.newLine();
     }
 
@@ -162,6 +162,8 @@ public final class ResultExporters {
         w.write(csv(r.category()));
         w.write(",");
         w.write(csv(r.runtimeModel()));
+        w.write(",");
+        w.write(Double.toString(r.wallClockSeconds()));
         w.newLine();
     }
 
@@ -228,8 +230,9 @@ public final class ResultExporters {
                 sb.append("\"gcSummary\":null,");
             }
 
-            // Repetition
-            sb.append("\"repetition\":").append(r.repetition());
+            // Repetition + wallClockSeconds
+            sb.append("\"repetition\":").append(r.repetition()).append(",");
+            sb.append("\"wallClockSeconds\":").append(r.wallClockSeconds());
 
             sb.append("}");
         }

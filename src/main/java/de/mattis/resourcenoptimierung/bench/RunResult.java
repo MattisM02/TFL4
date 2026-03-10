@@ -61,13 +61,16 @@ public record RunResult(Metadata metadata, Timing timing, Docker docker) {
      * @param latenciesSeconds gemessene Request-Latenzen in Sekunden
      * @param totalMeasureTimeSeconds Gesamtdauer der Messphase (alle measureRequests) in Sekunden
      * @param throughputReqPerSec Durchsatz: measureRequests / totalMeasureTimeSeconds
+     * @param wallClockSeconds Gesamte Wall-Clock-Dauer des Runs in Sekunden (Container-Start bis Cleanup-Ende).
+     *                         Dient als Grundlage fuer den {@link DurationEstimator}.
      */
     public record Timing(
             long readinessMs,
             double firstSeconds,
             List<Double> latenciesSeconds,
             double totalMeasureTimeSeconds,
-            double throughputReqPerSec) { }
+            double throughputReqPerSec,
+            double wallClockSeconds) { }
 
     /**
      * Docker-Metriken: Ressourcenverbrauch und GC-Zusammenfassung.
@@ -122,7 +125,7 @@ public record RunResult(Metadata metadata, Timing timing, Docker docker) {
                         startupLogSnippet, scenario, workloadN, workloadPath,
                         measurementProfile, repetition, category, runtimeModel),
                 new Timing(readinessMs, firstSeconds, latenciesSeconds,
-                        totalMeasureTimeSeconds, throughputReqPerSec),
+                        totalMeasureTimeSeconds, throughputReqPerSec, 0.0),
                 new Docker(dockerIdleSamples, dockerLoadSamples, dockerPostSamples,
                         gcSummary, gcLogPath));
     }
@@ -164,6 +167,8 @@ public record RunResult(Metadata metadata, Timing timing, Docker docker) {
     public double totalMeasureTimeSeconds()      { return timing.totalMeasureTimeSeconds(); }
     /** Durchsatz: measureRequests / totalMeasureTimeSeconds. */
     public double throughputReqPerSec()          { return timing.throughputReqPerSec(); }
+    /** Gesamte Wall-Clock-Dauer des Runs in Sekunden (Container-Start bis Cleanup-Ende). */
+    public double wallClockSeconds()             { return timing.wallClockSeconds(); }
 
     /** Docker-Stats kurz nach Readiness (vor Last). */
     public List<DockerStatSample> dockerIdleSamples()  { return docker.dockerIdleSamples(); }

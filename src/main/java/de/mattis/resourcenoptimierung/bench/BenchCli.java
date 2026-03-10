@@ -35,6 +35,8 @@ import java.util.List;
      * - --profiles:                Nur Laufzeitprofile statt vollstaendigem Plan (11 Profile P01-P04+P06-P12 statt 31 Configs)
  * - --rebuild:                 Erzwingt Neuaufbau von Maven-JAR und Docker-Images (auch wenn vorhanden)
  * - --merge-excel:             Alle CSVs aus bench-results/ in ein Excel zusammenfuehren (kein Benchmark)
+ * - --estimate:                Geschaetzte Laufzeit basierend auf historischen Daten ausgeben (kein Benchmark).
+ *                              Liest alle CSVs aus bench-results/ und skaliert die Dauer auf die geplanten Parameter.
  * - --quick:                   Schnelldurchlauf (10 Warmup, 30 Mess-Requests, 1 Wiederholung).
  *                              Explizite CLI-Werte (z.B. --measureRequests 50) ueberschreiben die Quick-Defaults.
  * - --smoke:                   Ultra-leichter Smoke-Test (3 Warmup, 5 Mess-Requests, 1 Wiederholung).
@@ -71,6 +73,17 @@ public class BenchCli {
             Path outDir = Path.of(BenchDefaults.OUTPUT_DIR);
             Path excelOut = outDir.resolve(BenchDefaults.EXCEL_FILENAME);
             ExcelExporter.mergeFromCsvDirectory(outDir, excelOut);
+            return;
+        }
+
+        // Standalone: --estimate gibt die geschaetzte Laufzeit aus (kein Benchmark)
+        if (hasFlag(args, "--estimate")) {
+            BenchmarkScenario estScenario = resolveScenario(args);
+            MeasurementProfile estProfile = resolveProfile(args);
+            BenchmarkPlan estPlan = resolvePlan(args, estScenario);
+            int estDefaultReps = (hasFlag(args, "--smoke") || hasFlag(args, "--quick")) ? 1 : DEFAULT_REPETITIONS;
+            int estRepetitions = resolveIntArg(args, "--repetitions", estDefaultReps);
+            DurationEstimator.printEstimate(estPlan, estScenario, estProfile, estRepetitions);
             return;
         }
 

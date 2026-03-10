@@ -1,0 +1,36 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: tl-postgres
+    environment:
+      POSTGRES_DB: traviclinkengine
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: Post1234
+    ports:
+      - "5432:5432"
+    volumes:
+      - tl_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d traviclinkengine"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  traviclink:
+    build:
+      context: ./tl
+    container_name: tl-ek
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "7070:7070"
+    environment:
+      JAVA_TOOL_OPTIONS: "-Xms256m -Xmx512m"
+    volumes:
+      - "/mnt/d/TravicLink:/data"
+      - "/mnt/d/sandboxes/sb_travic_link/tl-entw/CashlinkOngum/impl/install:/opt/tl-install"
+      - "./tl/properties-docker.properties:/data/properties/TravicLink.properties:ro"
+      - "/mnt/d/sandboxes/sb_travic_link/tl-entw/CashlinkOngum/transfer_server.jar:/data/lib/transfer_server.jar:ro"
+volumes:
+  tl_pgdata:
