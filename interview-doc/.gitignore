@@ -1,6 +1,9 @@
 # LaTeX build output
 out/
 
+# OpenCode editor backups
+*.bak*
+
 # latexmk auxiliary files
 *.aux
 *.log
