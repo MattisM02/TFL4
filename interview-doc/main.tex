@@ -1,0 +1,93 @@
+% Kontext-Dokument: JVM-Benchmark-Framework
+% LuaLaTeX -- compile with: lualatex main.tex  (or via latexmk)
+
+\documentclass[a4paper, 12pt]{article}
+
+% ---------------------------------------------------------------------------
+% Fonts & language
+% ---------------------------------------------------------------------------
+\usepackage{fontspec}
+\setmainfont{Latin Modern Roman}
+\setsansfont{Latin Modern Sans}
+\setmonofont[Scale=0.88]{Latin Modern Mono}
+
+\usepackage[ngerman]{babel}
+
+% ---------------------------------------------------------------------------
+% Page geometry
+% ---------------------------------------------------------------------------
+\usepackage[
+  a4paper,
+  top=2.5cm, bottom=2.5cm,
+  left=2.8cm, right=2.8cm
+]{geometry}
+
+% ---------------------------------------------------------------------------
+% Typography
+% ---------------------------------------------------------------------------
+\usepackage{microtype}
+\usepackage{parskip}          % paragraph spacing instead of indents
+
+% ---------------------------------------------------------------------------
+% Tables
+% ---------------------------------------------------------------------------
+\usepackage{longtable}
+\usepackage{booktabs}
+\usepackage{array}            % extended column specifiers (p{}, m{}, etc.)
+
+% ---------------------------------------------------------------------------
+% Verbatim / code blocks
+% ---------------------------------------------------------------------------
+\usepackage{verbatim}
+
+% ---------------------------------------------------------------------------
+% Header / footer
+% ---------------------------------------------------------------------------
+\usepackage{fancyhdr}
+\setlength{\headheight}{14pt}
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0.4pt}
+\fancyhead[L]{\small Kontext-Dokument: JVM-Benchmark-Framework}
+\fancyhead[R]{\small Experteninterview-Vorbereitung}
+\fancyfoot[C]{\small\thepage}
+
+% ---------------------------------------------------------------------------
+% Hyperlinks (load last)
+% ---------------------------------------------------------------------------
+\usepackage[
+  colorlinks=true,
+  linkcolor=black,
+  urlcolor=blue,
+  pdfauthor={Mattis},
+  pdftitle={Kontext-Dokument: JVM-Benchmark-Framework},
+  pdfsubject={Experteninterview-Vorbereitung},
+  pdfkeywords={JVM, Benchmark, Docker, GC, Container}
+]{hyperref}
+
+% ---------------------------------------------------------------------------
+% Document
+% ---------------------------------------------------------------------------
+\begin{document}
+
+\begin{titlepage}
+	\centering
+	\vspace*{4cm}
+	{\Large\bfseries Kontext-Dokument:\par}
+	\vspace{0.4em}
+	{\LARGE\bfseries JVM-Benchmark-Framework\par}
+	\vspace{2em}
+	{\large Vorbereitung für das Experteninterview\par}
+	\vspace{1em}
+	{\normalsize Thesis: \textit{Ressourcenoptimierung von javabasierten\\
+			Containeranwendungen im Cloudbetrieb}\par}
+	\vfill
+	{\small Stand: \today\par}
+\end{titlepage}
+
+\tableofcontents
+\clearpage
+
+\input{devops-interview}
+
+\end{document}

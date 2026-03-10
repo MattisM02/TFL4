@@ -1,0 +1,47 @@
+{
+  // LaTeX Workshop: beim Speichern automatisch kompilieren
+  "latex-workshop.latex.autoBuild.run": "onSave",
+
+  // Kompilier-Recipe: latexmk mit lualatex (beste Umlaut-Unterstützung, kein inputenc nötig)
+  "latex-workshop.latex.recipes": [
+    {
+      "name": "lualatex",
+      "tools": ["lualatex"]
+    }
+  ],
+  "latex-workshop.latex.tools": [
+    {
+      "name": "lualatex",
+      "command": "latexmk",
+      "args": [
+        "-lualatex",
+        "-synctex=1",
+        "-interaction=nonstopmode",
+        "-file-line-error",
+        "-outdir=%OUTDIR%",
+        "%DOC%"
+      ],
+      "env": {}
+    }
+  ],
+
+  // PDF-Viewer: im VS Code Tab rechts öffnen
+  "latex-workshop.view.pdf.viewer": "tab",
+
+  // Ausgabeverzeichnis: sauber getrennt vom Quellcode
+  "latex-workshop.latex.outDir": "%DIR%/out",
+
+  // Aufräumen nach Build (behält .pdf und .synctex.gz)
+  "latex-workshop.latex.clean.fileTypes": [
+    "*.aux", "*.log", "*.out", "*.toc", "*.fdb_latexmk",
+    "*.fls", "*.synctex(busy)", "*.bcf", "*.run.xml"
+  ],
+  "latex-workshop.latex.autoClean.run": "onSucceeded",
+
+  // SyncTeX: Klick im PDF springt zur Zeile im Editor
+  "latex-workshop.synctex.afterBuild.enabled": true,
+
+  // Fehlermeldungen im Problems-Panel anzeigen
+  "latex-workshop.message.error.show": true,
+  "latex-workshop.message.warning.show": false
+}

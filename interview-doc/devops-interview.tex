@@ -1,0 +1,224 @@
+\section{Kontext-Dokument: JVM-Benchmark-Framework}
+\label{sec:kontext}
+
+Dieses Dokument erklärt, was in diesem Projekt technisch passiert -- als
+Vorbereitung für ein Experteninterview. Ziel des Interviews: Deine
+Praxiserfahrung mit Container-Sizing, Java-Base-Images und relevanten
+Ressourcenmetriken aus DevOps-Sicht einzubeziehen.
+
+\medskip\noindent\rule{\linewidth}{0.4pt}\medskip
+
+\subsection{Was ist das hier überhaupt?}
+\label{sec:was-ist-das}
+
+Dieses Projekt misst, wie sich verschiedene \textbf{JVM-Konfigurationen}
+auf den Ressourcenverbrauch und die Performance einer
+Spring-Boot-Anwendung in Docker-Containern auswirken. Es ist kein
+Produktionsprojekt -- es ist das \textbf{Mess-Werkzeug} für eine
+wissenschaftliche Arbeit zum Thema „Ressourcenoptimierung von
+javabasierten Containeranwendungen im Cloudbetrieb".
+
+Das Framework besteht aus zwei Teilen:
+
+\begin{enumerate}
+	\item
+	      \textbf{Die Anwendung unter Test} -- eine Spring-Boot-REST-API, die
+	      synthetische Workloads bereitstellt (JSON-Serialisierung,
+	      Speicherallokation) sowie einen realen Workload (EBICS-Banktransfer
+	      über einen echten Bankserver).
+	\item
+	      \textbf{Der Benchmark-Runner} -- ein Java-CLI-Programm, das
+	      automatisch Docker-Container startet, JVM-Flags injiziert, Metriken
+	      erfasst und die Ergebnisse als CSV, JSON und Excel exportiert.
+\end{enumerate}
+
+\medskip\noindent\rule{\linewidth}{0.4pt}\medskip
+
+\subsection{Was passiert bei einem Benchmark-Lauf konkret?}
+\label{sec:benchmark-ablauf}
+
+Für jede der \textbf{32 Konfigurationen} (unterschiedliche JVM-Flags
+oder JVM-Implementierungen) wird folgender Ablauf automatisiert
+ausgeführt:
+
+\begin{verbatim}
+1.  docker run -d --cpus 1 --memory 768m --memory-swap 768m \
+        -e JAVA_TOOL_OPTIONS="<gc-logging> <jvm-flags>" \
+        tfl4-ek-bench:<image-tag>
+
+2.  Readiness-Polling (alle 150ms, max. 120s)
+       -> /actuator/health/readiness
+       -> /actuator/health           (Fallback)
+       -> Workload-Endpoint          (letzter Fallback)
+
+3.  docker stats: 3 Idle-Snapshots (Baseline-Ressourcenverbrauch ohne Last)
+
+4.  First-Request messen (erster echter Aufruf nach Readiness)
+
+5.  Warmup: 200 Requests (werden verworfen, JIT soll Steady-State erreichen)
+
+6.  docker stats: 10 Snapshots parallel zur Messphase
+
+7.  Messphase: 500 Requests (sequenziell, 1 Thread)
+
+8.  docker stats: 3 Post-Snapshots (Erholungsverhalten)
+
+9.  GC-Log aus Container-Stdout extrahieren und parsen
+
+10. docker stop && docker rm
+\end{verbatim}
+
+Pro Konfiguration läuft \textbf{genau ein Container gleichzeitig} --
+keine parallelen Runs, um Interferenzen zu vermeiden. Der
+Gesamtdurchlauf mit 3 Wiederholungen dauert ca. 8--12 Stunden.
+
+\medskip\noindent\rule{\linewidth}{0.4pt}\medskip
+
+\subsection{Welche JVM-Konfigurationen werden verglichen?}
+\label{sec:jvm-konfigurationen}
+
+\subsubsection{Ebene 1: 20 Flag-Analyse-Konfigurationen}
+\label{sec:ebene1}
+
+Alle verwenden dasselbe Docker-Image (\texttt{eclipse-temurin:25-jre}).
+Unterschiede entstehen nur durch die JVM-Flags.
+
+\begin{longtable}[]{@{}
+	>{\raggedright\arraybackslash}p{0.33\linewidth}
+	>{\raggedright\arraybackslash}p{0.63\linewidth}@{}}
+	\toprule
+	Gruppe             & Konfigurationen                                         \\
+	\midrule
+	\endhead
+	\bottomrule
+	\endlastfoot
+	Garbage Collectors & G1GC (Default), ZGC, Shenandoah, Parallel GC, Serial GC \\
+	G1-Tuning          & MaxGCPauseMillis=50, Heap 256m, Heap 512m               \\
+	JVM-Interna        & Compressed OOPs aus, Compact Object Headers (JEP 450)   \\
+	Cloud-Relevanz     & MaxRAMPercentage=75, TieredStopAtLevel=1 (kein C2)      \\
+	Kombinationen      & 8 weitere kombinierte Konfigurationen                   \\
+\end{longtable}
+
+\subsubsection{Ebene 2: 12 Laufzeitprofile}
+\label{sec:ebene2}
+
+Unterschiedliche Docker-Images, unterschiedliche JVM-Implementierungen:
+
+\begin{longtable}[]{@{}
+	>{\raggedright\arraybackslash}p{0.18\linewidth}
+	>{\raggedright\arraybackslash}p{0.44\linewidth}
+	>{\raggedright\arraybackslash}p{0.33\linewidth}@{}}
+	\toprule
+	Profil                   & Image / Base Image                                 & Was ist anders?                                \\
+	\midrule
+	\endhead
+	\bottomrule
+	\endlastfoot
+	P01 HotSpot Standard     & \texttt{eclipse-temurin:25-jre}                    & Referenzpunkt (G1 + MaxRAMPercentage=75)       \\
+	P02 Fast Startup         & \texttt{eclipse-temurin:25-jre}                    & TieredStopAtLevel=1 (kein C2)                  \\
+	P03 Low Latency          & \texttt{eclipse-temurin:25-jre}                    & ZGC                                            \\
+	P04 OpenJ9               & \texttt{ibm-semeru-runtimes:open-25-jre}           & Andere JVM-Implementierung (IBM)               \\
+	P05 Native Image         & \texttt{ghcr.io/graalvm/native-image-community:25} & Kein JVM, AOT-kompiliert                       \\
+	P06--P08 OpenJ9 Policies & \texttt{ibm-semeru-runtimes:open-25-jre}           & balanced, optthruput, optavgpause GC           \\
+	P09 HotSpot 256m         & \texttt{eclipse-temurin:25-jre}                    & Heap begrenzt auf 256 MB                       \\
+	P10 OpenJ9 256m          & \texttt{ibm-semeru-runtimes:open-25-jre}           & Heap 256 MB, direkter JVM-Vergleich            \\
+	P11 CDS                  & \texttt{eclipse-temurin:25-jre}                    & Dynamic Class Data Sharing (schnellerer Start) \\
+	P12 GraalVM JIT          & \texttt{ghcr.io/graalvm/jdk-community:25}          & GraalVM JVMCI statt HotSpot C2                 \\
+\end{longtable}
+
+\medskip\noindent\rule{\linewidth}{0.4pt}\medskip
+
+\subsection{Was wird gemessen?}
+\label{sec:metriken}
+
+\subsubsection{Aktuelle Container-Konfiguration (fix für alle Runs)}
+\label{sec:container-config}
+
+\begin{longtable}[]{@{}ll@{}}
+	\toprule
+	Parameter & Wert                                                   \\
+	\midrule
+	\endhead
+	\bottomrule
+	\endlastfoot
+	CPU-Limit & \texttt{--cpus 1}                                      \\
+	RAM-Limit & \texttt{--memory 768m}                                 \\
+	Swap      & deaktiviert (\texttt{--memory-swap 768m})              \\
+	Netzwerk  & Host -> Container (lokal, kein echter Netzwerk-Jitter) \\
+\end{longtable}
+
+\subsubsection{Gemessene Metriken pro Run (33 CSV-Spalten)}
+\label{sec:csv-spalten}
+
+\begin{longtable}[]{@{}
+	>{\raggedright\arraybackslash}p{0.30\linewidth}
+	>{\raggedright\arraybackslash}p{0.65\linewidth}@{}}
+	\toprule
+	Kategorie          & Metriken                                                                                                                                       \\
+	\midrule
+	\endhead
+	\bottomrule
+	\endlastfoot
+	\textbf{Startup}   & \texttt{readinessMs} (Container-Start bis HTTP 200), \texttt{firstSeconds} (erster Workload-Request)                                           \\
+	\textbf{Latenz}    & \texttt{latencyP50}, \texttt{latencyP95}, \texttt{latencyP99}, \texttt{latencyMean} (aus 500 Mess-Requests)                                    \\
+	\textbf{Durchsatz} & \texttt{throughputReqPerSec}, \texttt{totalMeasureTimeSeconds}                                                                                 \\
+	\textbf{CPU}       & \texttt{cpuLoadAvg} (Durchschnitt aus 10 docker-stats-Snapshots während Last)                                                                  \\
+	\textbf{Memory}    & \texttt{memLoadAvg}, \texttt{memLoadMax} (\% des Container-Limits)                                                                             \\
+	\textbf{GC}        & \texttt{gcCount}, \texttt{gcFullCount}, \texttt{gcTotalPauseMs}, \texttt{gcMaxPauseMs}, \texttt{gcOverheadPercent}, \texttt{gcPeakHeapAfterMb} \\
+	\textbf{Metadaten} & \texttt{configName}, \texttt{dockerImage}, \texttt{effectiveJavaToolOptions}, \texttt{runtimeModel}, \texttt{repetition}                       \\
+\end{longtable}
+
+Memory-Werte kommen direkt aus \texttt{docker stats} (cgroup-basiert,
+also das, was der Kernel dem Container zuteilt -- inkl. JVM Heap,
+Metaspace, Thread-Stacks, Code-Cache).
+
+\medskip\noindent\rule{\linewidth}{0.4pt}\medskip
+
+\subsection{Welche Workloads werden simuliert?}
+\label{sec:workloads}
+
+\begin{longtable}[]{@{}
+	>{\raggedright\arraybackslash}p{0.10\linewidth}
+	>{\raggedright\arraybackslash}p{0.22\linewidth}
+	>{\raggedright\arraybackslash}p{0.43\linewidth}
+	>{\raggedright\arraybackslash}p{0.18\linewidth}@{}}
+	\toprule
+	Szenario              & Endpoint                       & Was passiert                                                           & Workload-Typ                                      \\
+	\midrule
+	\endhead
+	\bottomrule
+	\endlastfoot
+	\textbf{JSON}         & \texttt{GET /json?n=200000}    & Erzeugt 200.000 Java-Objekte, serialisiert zu JSON                     & CPU-intensiv, GC-Druck durch kurzlebige Objekte   \\
+	\textbf{Alloc}        & \texttt{GET /alloc?n=10000000} & Allokiert 10 Mio. kurzlebige Byte-Arrays                               & GC-intensiv, stresst den Garbage Collector direkt \\
+	\textbf{EBICS Upload} & \texttt{GET /ebics/upload}     & Echte EBICS-Banktransaktion (SEPA-Überweisung) über lokalen Bankserver & I/O + TLS + Krypto, realer Workload               \\
+\end{longtable}
+
+Der EBICS-Workload läuft gegen einen echten TravicLink-Bankserver
+(Docker Compose: PostgreSQL 16 + Applikationsserver), der lokal läuft.
+
+\medskip\noindent\rule{\linewidth}{0.4pt}\medskip
+
+\subsection{Welche Base-Images sind im Einsatz?}
+\label{sec:base-images}
+
+\begin{longtable}[]{@{}
+	>{\raggedright\arraybackslash}p{0.38\linewidth}
+	>{\raggedright\arraybackslash}p{0.18\linewidth}
+	>{\raggedright\arraybackslash}p{0.38\linewidth}@{}}
+	\toprule
+	Base Image                                         & Typ                       & Verwendet für                     \\
+	\midrule
+	\endhead
+	\bottomrule
+	\endlastfoot
+	\texttt{eclipse-temurin:25-jre}                    & HotSpot JRE (Adoptium)    & Standard-JVM-Konfigurationen, CDS \\
+	\texttt{ibm-semeru-runtimes:open-25-jre}           & OpenJ9 JRE (IBM/Eclipse)  & Alternative JVM-Implementierung   \\
+	\texttt{ghcr.io/graalvm/native-image-community:25} & GraalVM (nur Build-Stage) & Native Image Build (Multi-Stage)  \\
+	\texttt{ghcr.io/graalvm/jdk-community:25}          & GraalVM JDK               & GraalVM JIT (JVMCI)               \\
+	\texttt{debian:bookworm-slim}                      & Runtime-Basis             & Native Image Runtime-Stage        \\
+\end{longtable}
+
+Das sind \textbf{4--5 unterschiedliche Base-Images} -- alle für Java 25,
+verschiedene JVM-Implementierungen.
+
+\medskip\noindent\rule{\linewidth}{0.4pt}\medskip

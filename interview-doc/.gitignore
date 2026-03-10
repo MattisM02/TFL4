@@ -1,0 +1,15 @@
+# LaTeX build output
+out/
+
+# latexmk auxiliary files
+*.aux
+*.log
+*.out
+*.toc
+*.fdb_latexmk
+*.fls
+*.synctex.gz
+*.bcf
+*.run.xml
+*.lof
+*.lot
