@@ -1,12 +1,15 @@
 \subsection{Was ist das hier überhaupt?}
 \label{sec:was-ist-das}
 
-Dieses Projekt misst, wie sich verschiedene \textbf{JVM-Konfigurationen}
-auf den Ressourcenverbrauch und die Performance einer
-Spring-Boot-Anwendung in Docker-Containern auswirken. Es ist kein
-Produktionsprojekt -- es ist das \textbf{Mess-Werkzeug} für eine
-wissenschaftliche Arbeit zum Thema „Ressourcenoptimierung von
-javabasierten Containeranwendungen im Cloudbetrieb".
+\textbf{Forschungsfrage:} Welche JVM-Konfiguration minimiert Startup-Zeit,
+Latenz und Speicherverbrauch einer Spring-Boot-Anwendung unter harten
+Container-Constraints (1\,CPU, 768\,MB RAM)?
+
+Dieses Projekt ist das \textbf{Mess-Werkzeug} für eine wissenschaftliche
+Arbeit zum Thema „Ressourcenoptimierung von javabasierten
+Containeranwendungen im Cloudbetrieb". Es vergleicht \textbf{32
+	Konfigurationen} (20 Flag-Varianten + 12 Laufzeitprofile) automatisiert
+und reproduzierbar.
 
 Das Framework besteht aus zwei Teilen:
 
@@ -20,6 +23,27 @@ Das Framework besteht aus zwei Teilen:
 	      \textbf{Der Benchmark-Runner} -- ein Java-CLI-Programm, das
 	      automatisch Docker-Container startet, JVM-Flags injiziert, Metriken
 	      erfasst und die Ergebnisse als CSV, JSON und Excel exportiert.
+\end{enumerate}
+
+\subsection{Wie läuft ein Benchmark-Durchlauf ab?}
+\label{sec:ablauf}
+
+Pro Konfiguration läuft \textbf{genau ein Container gleichzeitig} (keine
+parallelen Runs, keine Interferenzen). Jede Konfiguration wird
+\textbf{3-mal wiederholt}; der Gesamtdurchlauf dauert \textbf{ca.\ 8–12
+	Stunden}.
+
+\begin{enumerate}
+	\item \texttt{docker run -{}-cpus 1 -{}-memory 768m} mit injizierten JVM-Flags via \texttt{JAVA\_TOOL\_OPTIONS}
+	\item Readiness-Polling alle 150\,ms (max.\ 120\,s) auf \texttt{/actuator/health}
+	\item 3 Idle-Snapshots via \texttt{docker stats} (Baseline ohne Last)
+	\item First-Request messen (erster echter Aufruf nach Readiness)
+	\item 200 Warmup-Requests (verworfen -- JIT soll Steady-State erreichen)
+	\item 500 Mess-Requests sequenziell (1 Thread), parallel 10 \texttt{docker stats}-Snapshots
+	\item 3 Post-Snapshots (Erholungsverhalten nach Last)
+	\item GC-Log aus Container-Stdout extrahieren und parsen
+	\item \texttt{docker stop \&\& docker rm}
+	\item Ergebnisse als CSV / JSON / Excel exportieren
 \end{enumerate}
 
 \subsection{Welche JVM-Konfigurationen werden verglichen?}
@@ -74,7 +98,7 @@ Unterschiede entstehen nur durch die JVM-Flags.
 Unterschiedliche Docker-Images, unterschiedliche JVM-Implementierungen:
 
 \begin{longtable}[]{@{}
-	>{\raggedright\arraybackslash}p{0.20\linewidth}
+	>{\raggedright\arraybackslash}p{0.22\linewidth}
 	>{\raggedright\arraybackslash}p{0.40\linewidth}
 	>{\raggedright\arraybackslash}p{0.32\linewidth}@{}}
 	\thead{Profil}         & \thead{Image / Base Image}                         & \thead{Was ist anders?}                                                 \\
@@ -162,22 +186,3 @@ Metaspace, Thread-Stacks, Code-Cache).
 
 Der EBICS-Workload läuft gegen einen echten TravicLink-Bankserver
 (Docker Compose: PostgreSQL 16 + Applikationsserver), der lokal läuft.
-
-\subsection{Welche Base-Images sind im Einsatz?}
-\label{sec:base-images}
-
-\begin{longtable}[]{@{}
-	>{\raggedright\arraybackslash}p{0.40\linewidth}
-	>{\raggedright\arraybackslash}p{0.20\linewidth}
-	>{\raggedright\arraybackslash}p{0.34\linewidth}@{}}
-	\thead{Base Image}                                 & \thead{Typ}               & \thead{Verwendet für}             \\
-	\endhead
-	\rowcolor{rowalt}
-	\texttt{eclipse-temurin:25-jre}                    & HotSpot JRE (Adoptium)    & Standard-JVM-Konfigurationen, CDS \\
-	\texttt{ibm-semeru-runtimes:open-25-jre}           & OpenJ9 JRE (IBM/Eclipse)  & Alternative JVM-Implementierung   \\
-	\rowcolor{rowalt}
-	\texttt{ghcr.io/graalvm/native-image-community:25} & GraalVM (nur Build-Stage) & Native Image Build (Multi-Stage)  \\
-	\texttt{ghcr.io/graalvm/jdk-community:25}          & GraalVM JDK               & GraalVM JIT (JVMCI)               \\
-	\rowcolor{rowalt}
-	\texttt{debian:bookworm-slim}                      & Runtime-Basis             & Native Image Runtime-Stage        \\
-\end{longtable}
