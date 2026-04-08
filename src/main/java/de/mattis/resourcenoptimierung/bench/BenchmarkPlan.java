@@ -61,9 +61,9 @@ public class BenchmarkPlan {
     }
 
     /**
-     * Erzeugt den vollstaendigen Benchmark-Plan (34 Konfigurationen).
+     * Erzeugt den vollstaendigen Benchmark-Plan (32 Konfigurationen).
      *
-     * <p>Enthaelt alle Flag-Analyse-Konfigurationen (21) und alle Laufzeitprofile (13).
+     * <p>Enthaelt alle Flag-Analyse-Konfigurationen (19) und alle Laufzeitprofile (13).
      * Jede Konfiguration traegt Metadaten (Kategorie, Laufzeitmodell) fuer Excel-Gruppierung.
      *
      * <h3>Garbage-Collector-Vergleich (5)</h3>
@@ -75,10 +75,9 @@ public class BenchmarkPlan {
      *   <li>serial-gc — SerialGC, Single-Thread-GC, minimaler Overhead</li>
      * </ul>
      *
-     * <h3>G1GC-Tuning (3)</h3>
+     * <h3>G1GC-Tuning (2)</h3>
      * <ul>
      *   <li>g1-low-pause — G1 mit aggressivem Pausenziel (50 ms)</li>
-     *   <li>g1-heap-256m — G1 mit eingeschraenktem Heap (256 MB)</li>
      *   <li>g1-heap-512m — G1 mit mittlerem Heap (512 MB)</li>
      * </ul>
      *
@@ -88,9 +87,8 @@ public class BenchmarkPlan {
      *   <li>coh-on — Compact Object Headers (JEP 450, experimentell ab JDK 24)</li>
      * </ul>
      *
-     * <h3>Cloud-relevante Konfigurationen (2)</h3>
+     * <h3>Cloud-relevante Konfigurationen (1)</h3>
      * <ul>
-     *   <li>ram-percentage-75 — MaxRAMPercentage=75: Container-aware Heap-Sizing (75% des cgroup-Limits)</li>
      *   <li>tiered-stop-1 — TieredStopAtLevel=1: Nur C1-Kompilierung, schnellerer Start, kein C2-Overhead</li>
      * </ul>
      *
@@ -111,7 +109,7 @@ public class BenchmarkPlan {
      * <ul>
      *   <li>P01-hotspot-standard — G1GC + 75% RAM (Standard-Cloud-Deployment)</li>
      *   <li>P02-hotspot-fast-startup — G1GC + C1-only (Serverless/Cold-Start)</li>
-     *   <li>P03-hotspot-low-latency — ZGC (Sub-Millisekunden-Pausen)</li>
+     *   <li>P03-hotspot-low-latency — ZGC (Sub-Millisekunden-Pausen, 50% RAM fuer ZGC-Overhead)</li>
      *   <li>P04-openj9-low-memory — OpenJ9 gencon GC (Memory-optimiert)</li>
      *   <li>P05-native — GraalVM Native Image (AOT-kompiliert, kein JVM-Overhead)</li>
      *   <li>P06-openj9-balanced — OpenJ9 balanced GC (Region-basiert, NUMA-aware)</li>
@@ -124,7 +122,7 @@ public class BenchmarkPlan {
      *   <li>P13-virtual-threads — HotSpot + Virtual Threads (Project Loom): Tomcat nutzt VT statt Platform-Threads</li>
      * </ul>
      *
-     * @return Benchmark-Plan mit 34 Konfigurationen
+     * @return Benchmark-Plan mit 32 Konfigurationen
      */
     public static BenchmarkPlan defaultPlan() {
         String img = "tfl4-ek-bench:jvm";
@@ -190,14 +188,6 @@ public class BenchmarkPlan {
                         model
                 ),
                 new BenchmarkConfig(
-                        "g1-heap-256m",
-                        img,
-                        List.of("-Xmx256m"),
-                        rt,
-                        "G1-Tuning",
-                        model
-                ),
-                new BenchmarkConfig(
                         "g1-heap-512m",
                         img,
                         List.of("-Xmx512m"),
@@ -225,14 +215,6 @@ public class BenchmarkPlan {
                 ),
 
                 // ==================== Cloud-relevante Konfigurationen ====================
-                new BenchmarkConfig(
-                        "ram-percentage-75",
-                        img,
-                        List.of("-XX:MaxRAMPercentage=75"),
-                        rt,
-                        "Cloud-relevant",
-                        model
-                ),
                 new BenchmarkConfig(
                         "tiered-stop-1",
                         img,
@@ -336,7 +318,7 @@ public class BenchmarkPlan {
                 new BenchmarkConfig(
                         "P03-hotspot-low-latency",
                         img,
-                        List.of("-XX:+UseZGC", "-XX:MaxRAMPercentage=75"),
+                        List.of("-XX:+UseZGC", "-XX:MaxRAMPercentage=50"),
                         RuntimeType.HOTSPOT,
                         "Laufzeitprofil",
                         "HotSpot"
@@ -441,6 +423,23 @@ public class BenchmarkPlan {
     }
 
     /**
+     * Erzeugt einen Plan mit nur den Flag-Analyse-Konfigurationen (Ebene 1).
+     *
+     * <p>Enthaelt 19 Konfigurationen, die alle dasselbe HotSpot-Image verwenden
+     * und sich ausschliesslich durch JVM-Flags unterscheiden. Kategorien:
+     * GC-Vergleich, G1-Tuning, JVM-Interna, Cloud-relevant, Kombination.
+     *
+     * @return Benchmark-Plan mit 19 Flag-Analyse-Konfigurationen
+     */
+    public static BenchmarkPlan flagPlan() {
+        BenchmarkPlan full = defaultPlan();
+        List<BenchmarkConfig> flags = full.configs.stream()
+                .filter(c -> !c.name().matches("P\\d{2}-.*"))
+                .toList();
+        return new BenchmarkPlan(flags);
+    }
+
+    /**
      * Erzeugt einen neuen Plan mit EBICS-spezifischen Docker-Images.
      *
      * <p>Fuer EBICS-Szenarien muessen die Docker-Images die EBICS-Konfiguration
@@ -489,7 +488,7 @@ public class BenchmarkPlan {
      * <p>Diese Methode existiert fuer Rueckwaertskompatibilitaet mit BenchCli
      * und Tests, die {@code combinedPlan()} aufrufen.
      *
-     * @return vollstaendiger Plan mit 34 Konfigurationen
+     * @return vollstaendiger Plan mit 32 Konfigurationen
      */
     public static BenchmarkPlan combinedPlan() {
         return defaultPlan();

@@ -24,7 +24,7 @@ public enum BenchmarkScenario {
     ALLOC_HEAVY_OK    ("/alloc",     10_000_000, 10_000_000, false),
 
     /** EBICS-Upload ueber den EK-Bankserver. */
-    EBICS_UPLOAD      ("/ebics/upload",      10,          3, true);
+    EBICS_UPLOAD      ("/ebics/upload",       3,          3, true);
 
     private final String path;
     private final int defaultN;

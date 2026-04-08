@@ -65,7 +65,7 @@ docker run --rm -p 8080:8080 tfl4-ek-bench:native-ek
 # In neuem Terminal:
 Invoke-WebRequest -Uri http://localhost:8080/actuator/health
 Invoke-WebRequest -Uri http://localhost:8080/json
-Invoke-WebRequest -Uri "http://localhost:8080/ebics/test"    # nur mit -ek Variante
+Invoke-WebRequest -Uri "http://localhost:8080/ebics/upload?n=1"    # nur mit -ek Variante
 ```
 
 ---

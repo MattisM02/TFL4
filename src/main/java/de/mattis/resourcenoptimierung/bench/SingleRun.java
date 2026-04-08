@@ -473,8 +473,9 @@ public class SingleRun {
             } catch (IOException e) {
                 if (attempt == MAX_REQUEST_ATTEMPTS) throw e;
                 long backoffMs = 500L * attempt;
-                System.err.printf("[RETRY] %s attempt %d/%d failed: %s — retrying in %dms%n",
-                        cfg.name(), attempt, MAX_REQUEST_ATTEMPTS, e.getMessage(), backoffMs);
+                System.err.printf("[RETRY] %s attempt %d/%d failed: %s: %s — retrying in %dms%n",
+                        cfg.name(), attempt, MAX_REQUEST_ATTEMPTS,
+                        e.getClass().getName(), e.getMessage(), backoffMs);
                 Thread.sleep(backoffMs);
             }
         }

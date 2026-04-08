@@ -37,6 +37,15 @@ class MeasurementProfileTest {
     }
 
     @Test
+    void ebicsDefaults_returnsEbicsValues() {
+        MeasurementProfile p = MeasurementProfile.ebicsDefaults();
+        assertEquals(50, p.warmupRequests());
+        assertEquals(200, p.measureRequests());
+        assertEquals(1, p.concurrency());
+        assertEquals(0, p.sleepBetweenRequestsMs());
+    }
+
+    @Test
     void validProfile_createsSuccessfully() {
         MeasurementProfile p = new MeasurementProfile(10, 50, 4, 100);
         assertEquals(10, p.warmupRequests());

@@ -128,11 +128,11 @@ class DockerImageBuilderTest {
 
     @Test
     void collectTags_duplicateImages_deduplicates() {
-        // Default plan: 34 configs with 6 distinct images
+        // Default plan: 32 configs with 6 distinct images
         BenchmarkPlan plan = BenchmarkPlan.defaultPlan();
-        assertEquals(34, plan.configs.size(), "defaultPlan should have 34 configs");
+        assertEquals(32, plan.configs.size(), "defaultPlan should have 32 configs");
         Set<String> tags = DockerImageBuilder.collectUniqueImageTags(plan);
-        assertEquals(6, tags.size(), "34 configs with 6 distinct images should yield 6 unique tags");
+        assertEquals(6, tags.size(), "32 configs with 6 distinct images should yield 6 unique tags");
     }
 
     @Test

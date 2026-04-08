@@ -1,0 +1,46 @@
+% Anhang: Experteninterview-Transkript
+
+\subsection{Transkript Experteninterview}
+\label{sec:interview-transkript}
+
+\textit{Interviewpartner: Michael Grotemeyer, DevOps-Ingenieur, PPI AG.}\\
+\textit{Durchführung: leitfadengestütztes Interview, paraphrasiert.}
+
+\medskip
+\resetlinenumber
+\begin{linenumbers}
+
+	\textbf{Wie ist die aktuelle Containerstruktur in den produktiven Java-basierten Anwendungen bei PPI grundsätzlich aufgebaut?}\\
+	Die in der Produktion eingesetzten Komponenten basieren auf internen Base Images. Dabei kommen unterschiedliche Varianten zum Einsatz, unter anderem Distroless-Images auf Basis von Google Distroless sowie minimalistische, Red-Hat-nahe Derivate mit Shell. Zusätzlich existieren Varianten mit integriertem Tomcat. In diese Base Images werden die eigentlichen Java-Anwendungen der Produkte eingebracht. Bei Spring-Boot-basierten Anwendungen geschieht dies in der Regel automatisiert über den Build-Prozess, typischerweise mithilfe von Maven und Jib. Konfigurationsdaten werden produktiv überwiegend über einen Config-Server beziehungsweise Config-Client bereitgestellt, sodass vergleichsweise wenig über Umgebungsvariablen oder Dateisystem-Mounts konfiguriert wird.
+
+	\textbf{Welche Arten von Base Images werden derzeit verwendet?}\\
+	Es werden mehrere unterschiedliche Base Images verwendet. Genannt wurden insbesondere Distroless-Images sowie minimalistische Container-Images mit enthaltenem Shell-Zugang. Daneben gibt es auch Varianten, die zusätzlich einen Tomcat enthalten. Allen Varianten ist gemeinsam, dass sie mit der bei PPI verwendeten Java-Laufzeit ausgestattet werden und als Grundlage für die eigentlichen Produkt-Container dienen.
+
+	\textbf{Welche Containergrößen werden typischerweise verwendet?}\\
+	Eine einheitliche Standardgröße für alle Produkte gibt es nicht, da das Sizing stark von der jeweiligen Anwendung abhängt. Als typischer Einstieg wurde jedoch ein Arbeitsspeicher von etwa 2\,GB genannt. Gleichzeitig existieren auch kleinere sowie deutlich größere Konfigurationen. Bei ressourcenintensiveren Komponenten kann der Speicherbedarf bis in einen Bereich von etwa 16\,GB steigen. Für einen konkret genannten, EBICS-nahen Anwendungsfall wurde eine Konfiguration mit 4\,GB RAM und 500\,mCPU erwähnt.
+
+	\textbf{Wie wird die CPU- und RAM-Zuweisung in den Containern gehandhabt?}\\
+	Beim Arbeitsspeicher wird aktiv mit Requests und Limits gearbeitet, da diese für Sizing und Skalierung relevant sind. Bei der CPU wird hingegen häufig nur ein Request gesetzt, jedoch typischerweise kein hartes Limit. Eine Ausnahme bilden wenige besonders zeitkritische Anwendungen, etwa im Bereich Instant Payment, bei denen höhere CPU-Ressourcen explizit angefordert werden.
+
+	\textbf{Warum ist die JVM-Konfiguration im Containerbetrieb besonders relevant?}\\
+	Die reine Container-Awareness der JVM wird als nicht ausreichend angesehen, um produktive Anforderungen zuverlässig abzudecken. Zwar berücksichtigt die JVM Containergrenzen grundsätzlich, jedoch entstehen in der Praxis Probleme, wenn Heap-Größen rein prozentual aus dem verfügbaren Container-Speicher abgeleitet werden. Bei großen Containern kann dadurch nicht sinnvoll nutzbarer Rest-Speicher entstehen, während bei kleinen Containern die nicht-Heap-bezogenen Speicheranteile der JVM zu wenig berücksichtigt werden. Deshalb werden in der produktiven Umgebung gezielt JVM-Parameter gesetzt, um die Speicherverwendung kontrolliert innerhalb der Container-Limits zu halten.
+
+	\textbf{Welche zusätzlichen Herausforderungen entstehen durch Speicherverbrauch außerhalb der JVM?}\\
+	Ein zentrales Problem besteht darin, dass nicht alle speicherrelevanten Anteile innerhalb des JVM-Heaps liegen. Genannt wurde beispielsweise Kafka Streams, das mit RocksDB arbeitet und dabei Speicher außerhalb der JVM allokiert. Wenn die JVM den gesamten Container-Speicher für sich selbst einplant, kann dies zu Fehlkonfigurationen führen, sobald weitere speicherverbrauchende Komponenten innerhalb desselben Containers aktiv sind. Aus diesem Grund wird im produktiven Betrieb zusätzlich berücksichtigt, ob neben der JVM weitere Frameworks oder Prozesse Speicher benötigen.
+
+	\textbf{Wie wird diese Ressourcenberechnung in der Praxis umgesetzt?}\\
+	Die Berechnung der geeigneten JVM-Parameter erfolgt über den eingesetzten Operator-Stack. Dort wird auf Basis der gesetzten Container-Limits sowie zusätzlicher Konfigurationsinformationen berechnet, wie viel Speicher der JVM tatsächlich zugewiesen werden soll. Falls bestimmte Frameworks oder Komponenten zusätzlichen Speicherbedarf außerhalb der JVM verursachen, kann dies in die Berechnung einfließen. Ziel ist es, eine stabile Laufzeit innerhalb der gesetzten Ressourcenobergrenzen sicherzustellen.
+
+	\textbf{Welche Einschätzung wurde zur Eignung des aktuellen Benchmark-Szenarios gegeben?}\\
+	Das bisher vorgesehene Szenario mit einem EBICS-Client wurde als grundsätzlich nah an realen Anwendungsfällen bewertet, aber zugleich kritisch hinterfragt. Der Hinweis war, dass ein reiner EBICS-Client funktional im Wesentlichen einem spezialisierten HTTP-Client entspricht und damit nur einen Teil realer Produktlasten abbildet. Als positives Gegenbeispiel wurde jedoch eine bestehende Komponente genannt, die ebenfalls als Spring-Boot-Anwendung mit EBICS-Client arbeitet und zusätzlich an eine Messaging-Schnittstelle angebunden ist. Damit wurde bestätigt, dass das gewählte Benchmark-Szenario zumindest in Teilen an reale Produktstrukturen anschließt.
+
+	\textbf{Welche Alternative für ein realitätsnäheres Lastszenario wurde vorgeschlagen?}\\
+	Statt eines Client-zentrierten Szenarios wurde empfohlen, eher einen kleinen EBICS-Server zu betrachten, auf den Last von außen gegeben wird. Der Vorteil bestünde darin, dass sich reale Anfragen gezielter und standardisierter einspeisen lassen. Zudem wurde darauf hingewiesen, dass im Systemtest bereits Werkzeuge existieren, mit denen EBICS-Lasttests durchgeführt werden können. Diese basieren auf realistischen Request-Mustern und könnten daher besser geeignet sein, um produktionsnahe Lastprofile für ein Benchmarking zu erzeugen.
+
+	\textbf{Welche Empfehlungen ergaben sich für die konkrete Umsetzung des Benchmarkings?}\\
+	Empfohlen wurde, möglichst nicht zu viel Zeit in den Aufbau einer eigenen Testanwendung zu investieren, sofern bereits geeignete Anwendungen oder Testwerkzeuge vorhanden sind. Aus Sicht des Interviewpartners ist es sinnvoller, ein bestehendes, fachlich realistisches System als Testobjekt zu nutzen und daran gezielt Base Images, Build-Varianten oder JVM-Parameter zu verändern. Dadurch kann der Fokus stärker auf der eigentlichen Messung und Auswertung liegen, anstatt auf der Entwicklung einer zusätzlichen Benchmark-Anwendung.
+
+	\textbf{Wie wurde der Einsatz von GraalVM beziehungsweise AOT im Produktkontext eingeschätzt?}\\
+	GraalVM beziehungsweise Ahead-of-Time-Kompilierung wurde als technisch interessant bewertet, insbesondere da sich damit potenziell deutliche Größenreduktionen erzielen lassen. Gleichzeitig wurde jedoch betont, dass der Einsatz im aktuellen Produktumfeld nur eingeschränkt praktikabel sei. Als Grund wurde genannt, dass viele Produkte stark konfigurationsgetrieben sind und unterschiedliche fachliche Varianten über Konfiguration und Bean-Zusammenstellungen abbilden. Diese Flexibilität steht einer Vorab-Kompilierung häufig entgegen. Daher wurde der Einsatz von GraalVM eher als punktuell prüfenswert, aber nicht ohne Weiteres breit übertragbar auf die bestehende Produktlandschaft eingeschätzt.
+
+\end{linenumbers}

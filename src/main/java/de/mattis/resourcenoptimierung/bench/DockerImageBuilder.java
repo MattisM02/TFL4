@@ -43,7 +43,9 @@ public class DockerImageBuilder {
             Map.entry("tfl4-ek-bench:graalvm-jit",      "Dockerfile.graalvm-jit"),
             Map.entry("tfl4-ek-bench:graalvm-jit-ek",   "Dockerfile.graalvm-jit.with-ek"),
             Map.entry("tfl4-ek-bench:jvm-cds",          "Dockerfile.cds"),
-            Map.entry("tfl4-ek-bench:jvm-cds-ek",       "Dockerfile.cds.with-ek")
+            Map.entry("tfl4-ek-bench:jvm-cds-ek",       "Dockerfile.cds.with-ek"),
+            Map.entry("tfl4-ek-bench:jvm-vt",           "Dockerfile.virtual-threads"),
+            Map.entry("tfl4-ek-bench:jvm-vt-ek",        "Dockerfile.virtual-threads.with-ek")
     );
 
     /**

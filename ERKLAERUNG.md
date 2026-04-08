@@ -11,8 +11,8 @@ Zielgruppe: Pruefer und Betreuer mit JVM-Grundkenntnissen.
 1. [Was wird gemessen?](#1-was-wird-gemessen)
 2. [Wie wird gemessen?](#2-wie-wird-gemessen)
 3. [Zwei-Ebenen-Analyse](#3-zwei-ebenen-analyse)
-4. [Level 1: Die 20 Flag-Analyse-Konfigurationen](#4-level-1-die-20-flag-analyse-konfigurationen)
-5. [Level 2: Die 12 Laufzeitprofile](#5-level-2-die-12-laufzeitprofile)
+4. [Level 1: Die 21 Flag-Analyse-Konfigurationen](#4-level-1-die-21-flag-analyse-konfigurationen)
+5. [Level 2: Die 13 Laufzeitprofile](#5-level-2-die-13-laufzeitprofile)
 6. [Docker-Image-Architektur](#6-docker-image-architektur)
 7. [Messwerte und deren Erhebung](#7-messwerte-und-deren-erhebung)
 8. [GC-Log-Erfassung und -Auswertung](#8-gc-log-erfassung-und-auswertung)
@@ -68,7 +68,7 @@ docker run -d --cpus 1 --memory 768m --memory-swap 768m \
 
 ### Wiederholungen und Randomisierung
 
-Bei 3 Wiederholungen (Default) und 32 Konfigurationen (kombinierter Plan) werden **96 Container-Runs** ausgefuehrt. Pro Durchlauf wird die Reihenfolge **randomisiert** (`Collections.shuffle()`), um systematische Effekte zu eliminieren:
+Bei 3 Wiederholungen (Default) und 34 Konfigurationen (kombinierter Plan) werden **102 Container-Runs** ausgefuehrt. Pro Durchlauf wird die Reihenfolge **randomisiert** (`Collections.shuffle()`), um systematische Effekte zu eliminieren:
 - CPU-Throttling nach laengerer Last
 - Filesystem-Cache-Aufwaermung
 - Docker-Daemon-Overhead-Schwankungen
@@ -107,25 +107,25 @@ Die `readinessMs`-Messung umfasst die gesamte Zeitspanne vom `docker run`-Aufruf
 
 Das Framework verwendet eine **zweistufige Analyse**, die unterschiedliche Fragestellungen adressiert:
 
-### Level 1: Flag-Analyse (20 Konfigurationen)
+### Level 1: Flag-Analyse (21 Konfigurationen)
 
 **Fragestellung:** Welchen Einfluss haben einzelne JVM-Flags und deren Kombinationen auf dasselbe JVM (HotSpot)?
 
-Alle 20 Konfigurationen verwenden dasselbe Docker-Image (`tfl4-ek-bench:jvm`, Eclipse Temurin JRE 25). Unterschiede entstehen **ausschliesslich** durch die gesetzten JVM-Flags. Dies isoliert den Effekt der Flags von Unterschieden in der JVM-Implementierung.
+Alle 21 Konfigurationen verwenden dasselbe Docker-Image (`tfl4-ek-bench:jvm`, Eclipse Temurin JRE 25). Unterschiede entstehen **ausschliesslich** durch die gesetzten JVM-Flags. Dies isoliert den Effekt der Flags von Unterschieden in der JVM-Implementierung.
 
-### Level 2: Laufzeitprofile (12 Konfigurationen)
+### Level 2: Laufzeitprofile (13 Konfigurationen)
 
 **Fragestellung:** Wie vergleichen sich verschiedene JVM-Implementierungen und Laufzeitmodelle unter praxisnahen Cloud-Deployment-Strategien?
 
-Die 12 Profile verwenden **unterschiedliche Docker-Images** mit verschiedenen JVMs (HotSpot, OpenJ9, GraalVM Native, GraalVM JIT, CDS). Jedes Profil repraesentiert eine typische Cloud-Deployment-Strategie.
+Die 13 Profile verwenden **unterschiedliche Docker-Images** mit verschiedenen JVMs (HotSpot, OpenJ9, GraalVM Native, GraalVM JIT, CDS, Virtual Threads). Jedes Profil repraesentiert eine typische Cloud-Deployment-Strategie.
 
 ### Kombinierter Plan (Default)
 
-Per Default werden **beide Ebenen** ausgefuehrt: 20 + 12 = **32 Konfigurationen**. Mit `--profiles` werden nur die 12 Profile ausgefuehrt. Mit `--jvmArgs` wird eine einzelne benutzerdefinierte Konfiguration ausgefuehrt.
+Per Default werden **beide Ebenen** ausgefuehrt: 21 + 13 = **34 Konfigurationen**. Mit `--profiles` werden nur die 13 Profile ausgefuehrt. Mit `--jvmArgs` wird eine einzelne benutzerdefinierte Konfiguration ausgefuehrt.
 
 ---
 
-## 4. Level 1: Die 20 Flag-Analyse-Konfigurationen
+## 4. Level 1: Die 21 Flag-Analyse-Konfigurationen
 
 Alle verwenden das Image `tfl4-ek-bench:jvm` (Eclipse Temurin JRE 25) und `RuntimeType.HOTSPOT`.
 
@@ -198,7 +198,7 @@ Deaktiviert den C2-Compiler (Server-Compiler). Nur C1 (Client-Compiler) laeuft.
 `TieredStopAtLevel=1` stoppt nach C1. Drastisch schnellerer Startup (C2-Kompilierung entfaellt), geringerer Peak-Durchsatz bei lang laufenden Workloads.
 **Cloud-Relevanz:** Ideal fuer kurzlebige Container, Serverless Functions, Autoscaling-Szenarien.
 
-### 4.5 Flag-Kombinationen (8 Konfigurationen)
+### 4.5 Flag-Kombinationen (9 Konfigurationen)
 
 | Config | JVM-Flags | Hypothese |
 |--------|-----------|-----------|
@@ -207,13 +207,14 @@ Deaktiviert den C2-Compiler (Server-Compiler). Nur C1 (Client-Compiler) laeuft.
 | `shenandoah-heap-512m` | `-XX:+UseShenandoahGC -Xmx512m` | Shenandoah mit definiertem Heap. Vergleichspunkt zu ZGC unter identischen Heap-Bedingungen. |
 | `tiered-stop-1-serial` | `-XX:TieredStopAtLevel=1 -XX:+UseSerialGC` | C1-only + Serial GC: schnellstmoeglicher Start + bester GC auf 1 CPU. Optimiert fuer Cold-Start. |
 | `g1-coh-on` | `-XX:+UseG1GC -XX:+UnlockExperimentalVMOptions -XX:+UseCompactObjectHeaders` | G1 + Compact Object Headers: reduziert Objekt-Overhead und GC-Druck durch kleinere Header. |
+| `zgc-coh-on` | `-XX:+UseZGC -XX:+UnlockExperimentalVMOptions -XX:+UseCompactObjectHeaders` | ZGC + Compact Object Headers: niedrige Pausen + kompakte Objekte. |
 | `parallel-gc-256m` | `-XX:+UseParallelGC -Xmx256m` | Durchsatz-GC mit kleinem Heap. Zeigt, ob Parallel GC unter Memory-Pressure noch Vorteile bietet. |
 | `g1-large-young` | `-XX:+UseG1GC -XX:NewRatio=1` | G1 mit 50% Young Generation (statt Default ~33%). Weniger Full GCs erwartet bei alloc-lastigen Workloads. |
 | `zgc-tiered-stop-1` | `-XX:+UseZGC -XX:TieredStopAtLevel=1` | ZGC + C1-only: niedrige Pausen mit schnellem Start. Optimiert fuer Serverless/Autoscaling. |
 
 ---
 
-## 5. Level 2: Die 12 Laufzeitprofile
+## 5. Level 2: Die 13 Laufzeitprofile
 
 Die Laufzeitprofile vergleichen verschiedene JVM-Implementierungen und Laufzeitmodelle. Jedes Profil hat ein eigenes Docker-Image (wo noetig) und repraesentiert eine typische Cloud-Deployment-Strategie.
 
@@ -293,11 +294,21 @@ GraalVM JIT-Compiler (JVMCI) anstelle des Standard-C2-Compilers. GraalVM's JIT-C
 
 **Image:** `ghcr.io/graalvm/jdk-community:25`
 
+### Virtual-Threads-Profil
+
+#### P13-virtual-threads (Image: jvm-vt)
+**Flags:** `-XX:+UseG1GC -XX:MaxRAMPercentage=75`
+HotSpot mit **Virtual Threads (Project Loom)**. Tomcat laeuft auf virtuellen Threads statt auf plattformspezifischen Threads. Aktiviert ueber `SPRING_THREADS_VIRTUAL_ENABLED=true` im Docker-Image.
+
+Virtual Threads sind leichtgewichtige Threads, die von der JVM verwaltet werden (nicht vom Betriebssystem). Bei I/O-lastigen Workloads (wie EBICS) koennen sie die Skalierbarkeit verbessern, weil blockierende Operationen den zugrunde liegenden Plattform-Thread freigeben.
+
+**Image:** `eclipse-temurin:25-jre` (mit `SPRING_THREADS_VIRTUAL_ENABLED=true`)
+
 ---
 
 ## 6. Docker-Image-Architektur
 
-### 10 Images (5 Standard + 5 EBICS)
+### 12 Images (6 Standard + 6 EBICS)
 
 | Tag | Dockerfile | Base Image | Beschreibung |
 |-----|-----------|------------|-------------|
@@ -311,6 +322,8 @@ GraalVM JIT-Compiler (JVMCI) anstelle des Standard-C2-Compilers. GraalVM's JIT-C
 | `tfl4-ek-bench:graalvm-jit-ek` | `Dockerfile.graalvm-jit.with-ek` | *(gleich)* | GraalVM JIT + EBICS-Kernel |
 | `tfl4-ek-bench:jvm-cds` | `Dockerfile.cds` | `eclipse-temurin:25-jre` | Dynamic CDS (2-Stage Training) |
 | `tfl4-ek-bench:jvm-cds-ek` | `Dockerfile.cds.with-ek` | *(gleich)* | CDS + EBICS-Kernel |
+| `tfl4-ek-bench:jvm-vt` | `Dockerfile.virtual-threads` | `eclipse-temurin:25-jre` | Virtual Threads (Project Loom) |
+| `tfl4-ek-bench:jvm-vt-ek` | `Dockerfile.virtual-threads.with-ek` | *(gleich)* | Virtual Threads + EBICS-Kernel |
 
 ### Automatischer Image-Build
 
@@ -500,7 +513,7 @@ Waehrend des Benchmarks wird nach jedem erfolgreichen Run das Ergebnis sofort an
 | `--jvmArgs` | -- | JVM-Flags fuer einzelnen Run (ueberschreibt Plan) |
 | `--configName` | `cli-custom` | Config-Name (nur mit --jvmArgs) |
 | `--dockerImage` | `tfl4-ek-bench:jvm` | Image (nur mit --jvmArgs) |
-| `--profiles` | -- | Nur 12 Laufzeitprofile statt kombiniertem Plan |
+| `--profiles` | -- | Nur 13 Laufzeitprofile statt kombiniertem Plan |
 | `--rebuild` | -- | Erzwingt Neuaufbau von Maven-JAR + Docker-Images |
 | `--skipTravicLink` | -- | TravicLink nicht automatisch starten |
 | `--merge-excel` | -- | Standalone CSV-Merge zu Excel (kein Benchmark) |

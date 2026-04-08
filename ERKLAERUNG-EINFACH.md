@@ -13,9 +13,9 @@ Eine verstaendliche Erklaerung des Benchmark-Frameworks, auch ohne Programmierke
 5. [Grundlagen: Was ist Docker?](#5-grundlagen-was-ist-docker)
 6. [Grundlagen: Was ist die Cloud?](#6-grundlagen-was-ist-die-cloud)
 7. [Was macht das Programm konkret?](#7-was-macht-das-programm-konkret)
-8. [Die Zwei-Ebenen-Analyse: Warum 32 Konfigurationen?](#8-die-zwei-ebenen-analyse-warum-32-konfigurationen)
-9. [Ebene 1: Die 20 Flag-Konfigurationen](#9-ebene-1-die-20-flag-konfigurationen)
-10. [Ebene 2: Die 12 Laufzeitprofile](#10-ebene-2-die-12-laufzeitprofile)
+8. [Die Zwei-Ebenen-Analyse: Warum 34 Konfigurationen?](#8-die-zwei-ebenen-analyse-warum-34-konfigurationen)
+9. [Ebene 1: Die 21 Flag-Konfigurationen](#9-ebene-1-die-21-flag-konfigurationen)
+10. [Ebene 2: Die 13 Laufzeitprofile](#10-ebene-2-die-13-laufzeitprofile)
 11. [Was wird gemessen?](#11-was-wird-gemessen)
 12. [GC-Log-Auswertung: Dem Aufraeumer ueber die Schulter schauen](#12-gc-log-auswertung-dem-aufraeumer-ueber-die-schulter-schauen)
 13. [Statistik: Wie verlaesslich sind die Ergebnisse?](#13-statistik-wie-verlaesslich-sind-die-ergebnisse)
@@ -27,7 +27,7 @@ Eine verstaendliche Erklaerung des Benchmark-Frameworks, auch ohne Programmierke
 
 ## 1. Das Ziel in einem Satz
 
-Dieses Programm testet **32 verschiedene Konfigurationen** fuer Java-Anwendungen und misst, welche am schnellsten startet, die niedrigsten Antwortzeiten hat, den hoechsten Durchsatz liefert und am wenigsten Ressourcen verbraucht -- und zwar unter den Bedingungen, die in einer echten Cloud herrschen.
+Dieses Programm testet **34 verschiedene Konfigurationen** fuer Java-Anwendungen und misst, welche am schnellsten startet, die niedrigsten Antwortzeiten hat, den hoechsten Durchsatz liefert und am wenigsten Ressourcen verbraucht -- und zwar unter den Bedingungen, die in einer echten Cloud herrschen.
 
 **Analogie:** Man stelle sich ein Auto vor, das immer die gleiche Teststrecke faehrt. Aber jedes Mal werden die Motoreinstellungen veraendert -- Sportmodus, Eco-Modus, mit Turbo, ohne Turbo. Manchmal wird sogar ein komplett anderer Motor eingebaut (Diesel, Benziner, Elektro). Nach jeder Fahrt wird gemessen: Wie schnell war der Motor auf Betriebstemperatur? Wie schnell war die Rundenzeit? Wie viel Sprit wurde verbraucht? Am Ende hat man eine Tabelle, die zeigt, welche Motoreinstellung fuer welchen Einsatzzweck am besten ist.
 
@@ -170,21 +170,22 @@ Das bildet die Realitaet in der Cloud nach, wo jeder Container nur einen begrenz
 
 ### Docker-Images: Verschiedene "Verpackungen"
 
-Unser Benchmark-Programm verwendet **10 verschiedene Docker-Images** -- also 10 verschiedene Verpackungen fuer die gleiche Anwendung. Jedes Image enthaelt eine andere Java-Umgebung:
+Unser Benchmark-Programm verwendet **12 verschiedene Docker-Images** -- also 12 verschiedene Verpackungen fuer die gleiche Anwendung. Jedes Image enthaelt eine andere Java-Umgebung:
 
 | Image | Inhalt | Wofuer? |
 |-------|--------|---------|
-| **jvm** | Standard-Java (HotSpot/Temurin) | Die meisten der 20 Flag-Tests |
+| **jvm** | Standard-Java (HotSpot/Temurin) | Die meisten der 21 Flag-Tests |
 | **openj9** | IBM-Java (OpenJ9/Semeru) | OpenJ9-Profile (P04, P06-P08, P10) |
 | **native** | Vorher-uebersetztes Programm (GraalVM Native) | Profil P05: schnellstmoeglicher Start |
 | **graalvm-jit** | GraalVM mit anderem JIT-Compiler | Profil P12: alternativer Compiler |
 | **jvm-cds** | Standard-Java mit "Erinnerungs-Archiv" | Profil P11: schnellerer Start durch CDS |
+| **jvm-vt** | Standard-Java mit virtuellen Threads | Profil P13: leichtgewichtige Threads (Project Loom) |
 
 Jedes Image gibt es auch in einer Variante mit `-ek` am Ende (z.B. `jvm-ek`). Diese Variante enthaelt zusaetzlich die EBICS-Banking-Software, die fuer das Banking-Testszenario benoetigt wird.
 
 ### Warum ist das relevant?
 
-Unser Benchmark startet fuer jede der 32 Konfigurationen einen **eigenen** Docker-Container mit exakt den gleichen Limits. So werden die Bedingungen fair und vergleichbar: Jede Konfiguration bekommt genau 1 CPU und 768 MB RAM -- nicht mehr, nicht weniger.
+Unser Benchmark startet fuer jede der 34 Konfigurationen einen **eigenen** Docker-Container mit exakt den gleichen Limits. So werden die Bedingungen fair und vergleichbar: Jede Konfiguration bekommt genau 1 CPU und 768 MB RAM -- nicht mehr, nicht weniger.
 
 ---
 
@@ -221,7 +222,7 @@ Eine Spring-Boot-Webanwendung mit drei verschiedenen Aufgaben:
 
 **Teil 2: Das Benchmark-Werkzeug**
 Ein Kommandozeilen-Programm, das:
-1. Fuer jede der 32 Konfigurationen einen Docker-Container startet
+1. Fuer jede der 34 Konfigurationen einen Docker-Container startet
 2. Die Anwendung darin hochfahren laesst
 3. Erst 200 "Aufwaerm-Anfragen" schickt (damit die JVM sich aufwaermt)
 4. Dann 500 "echte" Anfragen schickt und jede einzelne Antwortzeit misst
@@ -290,31 +291,31 @@ Eine einzelne Messung kann zufaellig gut oder schlecht ausfallen. Durch 3 Wieder
 
 ---
 
-## 8. Die Zwei-Ebenen-Analyse: Warum 32 Konfigurationen?
+## 8. Die Zwei-Ebenen-Analyse: Warum 34 Konfigurationen?
 
 Unser Benchmark hat **zwei verschiedene Fragestellungen**, die jeweils eine eigene "Ebene" von Tests erfordern:
 
-### Ebene 1: "Welche Einstellung ist am besten?" (20 Konfigurationen)
+### Ebene 1: "Welche Einstellung ist am besten?" (21 Konfigurationen)
 
 Hier verwenden wir immer den **gleichen Motor** (HotSpot, die Standard-JVM) und drehen nur an den **Einstellungen** (Flags). Das ist wie ein Auto, bei dem man immer denselben Motor hat, aber die Motorsteuerung veraendert: Sportmodus, Eco-Modus, Turbo an/aus.
 
 **Warum das wichtig ist:** So sieht man den Effekt jeder einzelnen Einstellung, ohne dass Unterschiede zwischen den JVM-Herstellern das Ergebnis verfaelschen.
 
-### Ebene 2: "Welcher Motor ist am besten?" (12 Konfigurationen)
+### Ebene 2: "Welcher Motor ist am besten?" (13 Konfigurationen)
 
-Hier tauschen wir den **Motor selbst** aus: Statt nur HotSpot zu verwenden, testen wir auch OpenJ9 (IBM), GraalVM Native Image und GraalVM JIT. Jede Konfiguration hat ein eigenes Docker-Image mit der jeweiligen JVM.
+Hier tauschen wir den **Motor selbst** aus: Statt nur HotSpot zu verwenden, testen wir auch OpenJ9 (IBM), GraalVM Native Image, GraalVM JIT und Virtual Threads. Jede Konfiguration hat ein eigenes Docker-Image mit der jeweiligen JVM.
 
 **Warum das wichtig ist:** In der Praxis wuerde man in der Cloud nicht nur Flags aendern, sondern auch die Frage stellen: "Sollten wir eine komplett andere JVM verwenden?"
 
-### Zusammen: 20 + 12 = 32
+### Zusammen: 21 + 13 = 34
 
-Standardmaessig fuehrt das Programm **beide Ebenen** aus. Das ergibt bei 3 Wiederholungen insgesamt 96 einzelne Container-Runs.
+Standardmaessig fuehrt das Programm **beide Ebenen** aus. Das ergibt bei 3 Wiederholungen insgesamt 102 einzelne Container-Runs.
 
 ---
 
-## 9. Ebene 1: Die 20 Flag-Konfigurationen
+## 9. Ebene 1: Die 21 Flag-Konfigurationen
 
-Alle 20 verwenden dasselbe Docker-Image (HotSpot/Temurin). Der Unterschied liegt **nur** in den JVM-Flags.
+Alle 21 verwenden dasselbe Docker-Image (HotSpot/Temurin). Der Unterschied liegt **nur** in den JVM-Flags.
 
 ### Gruppe 1: Welcher Aufraeumer ist der beste? (5 Varianten)
 
@@ -430,9 +431,9 @@ Dieses Flag schaltet den langsamen, aber gruendlichen C2-Compiler komplett ab (s
 
 **Analogie:** Beim Sprint zieht man keine schweren Laufschuhe an, die erst nach 10 km bequem werden. Man nimmt leichte Schuhe, die sofort passen -- auch wenn sie fuer einen Marathon nicht ideal waeren.
 
-### Gruppe 5: Flag-Kombinationen (8 Varianten)
+### Gruppe 5: Flag-Kombinationen (9 Varianten)
 
-In der Praxis verwendet man selten nur einen einzelnen Schalter. Oft kombiniert man mehrere Einstellungen. Diese 8 Konfigurationen testen solche Kombinationen:
+In der Praxis verwendet man selten nur einen einzelnen Schalter. Oft kombiniert man mehrere Einstellungen. Diese 9 Konfigurationen testen solche Kombinationen:
 
 #### 13. serial-gc-256m -- Der absolute Minimalist
 **Flags:** `-XX:+UseSerialGC -Xmx256m`
@@ -484,9 +485,16 @@ ZGC (minimale Pausen) kombiniert mit abgeschaltetem C2-Compiler (schneller Start
 
 **Wann sinnvoll?** Fuer Serverless-Funktionen oder Autoscaling-Container, wo sowohl schneller Start als auch niedrige Latenzen wichtig sind.
 
+#### 21. zgc-coh-on -- Schnell antworten mit kompakten Koepfen
+**Flags:** `-XX:+UseZGC -XX:+UnlockExperimentalVMOptions -XX:+UseCompactObjectHeaders`
+
+ZGC (minimale Pausen) kombiniert mit kompakteren Objekt-Koepfen. ZGC ist bekannt dafuer, viel Speicher zu beanspruchen. Durch kleinere Objekt-Koepfe wird das Live-Set kompakter, was ZGC weniger Speicher-Overhead verursacht und moeglicherweise die GC-Haeufigkeit reduziert.
+
+**Wann sinnvoll?** Wenn man die Pausen-Vorteile von ZGC nutzen moechte, aber den Speicherverbrauch etwas senken will.
+
 ---
 
-## 10. Ebene 2: Die 12 Laufzeitprofile
+## 10. Ebene 2: Die 13 Laufzeitprofile
 
 Waehrend Ebene 1 immer denselben Motor (HotSpot) mit verschiedenen Einstellungen testet, tauscht Ebene 2 den **Motor selbst** aus. Jedes Profil repraesentiert eine typische Cloud-Strategie.
 
@@ -572,11 +580,22 @@ Statt des normalen C2-Compilers verwendet diese JVM den **GraalVM JIT-Compiler**
 
 **Analogie:** Gleicher Motor, aber ein anderer, modernerer Turbolader -- manchmal bringt er mehr Leistung, manchmal keinen Unterschied.
 
+#### P13 -- HotSpot mit Virtual Threads (Project Loom)
+**Image:** jvm-vt | **Flags:** `-XX:+UseG1GC -XX:MaxRAMPercentage=75`
+
+Dieses Profil verwendet **Virtual Threads** (auch bekannt als "Project Loom"). Statt der klassischen "Platform Threads", bei denen jeder Thread einem Betriebssystem-Thread entspricht, nutzt die JVM hier extrem leichtgewichtige, virtuelle Threads. Tausende davon koennen auf wenigen Betriebssystem-Threads laufen.
+
+Konkret wird der eingebettete Tomcat-Webserver so konfiguriert, dass er fuer jede HTTP-Anfrage einen Virtual Thread startet statt einen aus einem festen Thread-Pool zu nehmen. Der Vorteil: Bei vielen gleichzeitigen Anfragen (z.B. mit I/O-Wartezeiten wie bei EBICS) blockiert ein wartender Thread keine teure Betriebssystem-Ressource.
+
+**Analogie:** Statt fuer jede Aufgabe einen fest angestellten Mitarbeiter zu haben, der waehrend der Wartezeit untaetig herumsitzt, stellt man "Zeitarbeiter" ein, die kommen, ihre Aufgabe erledigen, und waehrenddessen den Platz fuer andere freimachen, wenn sie gerade auf etwas warten.
+
+**Erwartung:** Aehnliche oder bessere Latenz und Durchsatz bei I/O-lastigen Workloads (EBICS), weniger Speicherverbrauch fuer Thread-Stacks.
+
 ---
 
 ## 11. Was wird gemessen?
 
-Fuer **jede** der 32 Konfigurationen werden exakt die **gleichen** Messwerte erhoben. Es wird nichts weggelassen oder unterschiedlich behandelt. Das macht die Ergebnisse direkt vergleichbar.
+Fuer **jede** der 34 Konfigurationen werden exakt die **gleichen** Messwerte erhoben. Es wird nichts weggelassen oder unterschiedlich behandelt. Das macht die Ergebnisse direkt vergleichbar.
 
 ### Startup-Zeit (Readiness)
 **Was:** Wie lange dauert es vom Starten des Containers bis das Programm bereit ist, Anfragen zu beantworten?

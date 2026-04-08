@@ -34,7 +34,7 @@ docker build -t tfl4-ek-bench:jvm .
 # 4 Docker-E2E-Tests (braucht Docker + gebautes Image)
 .\mvnw test -DincludeDocker
 
-# Benchmark interaktiv starten (32 Konfigurationen, 3 Wiederholungen)
+# Benchmark interaktiv starten (34 Konfigurationen, 3 Wiederholungen)
 .\mvnw exec:java
 
 # Nicht-interaktiv
@@ -46,7 +46,7 @@ docker build -t tfl4-ek-bench:jvm .
 # Ultra-leichter Smoke-Test (3 Warmup, 5 Mess-Requests, 1 Wiederholung)
 .\mvnw exec:java -Dexec.args="--scenario json --smoke"
 
-# Nur die 12 Laufzeitprofile (statt 20+12=32 Konfigurationen)
+# Nur die 13 Laufzeitprofile (statt 21+13=34 Konfigurationen)
 .\mvnw exec:java -Dexec.args="--scenario json --profiles"
 
 # Einzelner Run mit ZGC
@@ -62,33 +62,34 @@ docker build -t tfl4-ek-bench:jvm .
 
 Das Framework verwendet eine **zweistufige Analyse**, um JVM-Konfigurationen systematisch zu bewerten:
 
-### Level 1: Flag-Analyse (20 Konfigurationen)
+### Level 1: Flag-Analyse (21 Konfigurationen)
 
-Vergleicht 20 HotSpot-Konfigurationen auf **demselben** Docker-Image (`tfl4-ek-bench:jvm`, Temurin JRE 25). Unterschiede entstehen ausschliesslich durch JVM-Flags. Gruppiert in:
+Vergleicht 21 HotSpot-Konfigurationen auf **demselben** Docker-Image (`tfl4-ek-bench:jvm`, Temurin JRE 25). Unterschiede entstehen ausschliesslich durch JVM-Flags. Gruppiert in:
 
 - **GC-Vergleich** (5): baseline, zgc, shenandoah, parallel-gc, serial-gc
 - **G1-Tuning** (3): g1-low-pause, g1-heap-256m, g1-heap-512m
 - **JVM-Interna** (2): coops-off, coh-on
 - **Cloud-relevant** (2): ram-percentage-75, tiered-stop-1
-- **Flag-Kombinationen** (8): serial-gc-256m, zgc-heap-512m, shenandoah-heap-512m, tiered-stop-1-serial, g1-coh-on, parallel-gc-256m, g1-large-young, zgc-tiered-stop-1
+- **Flag-Kombinationen** (9): serial-gc-256m, zgc-heap-512m, shenandoah-heap-512m, tiered-stop-1-serial, g1-coh-on, zgc-coh-on, parallel-gc-256m, g1-large-young, zgc-tiered-stop-1
 
-### Level 2: Laufzeitprofile (12 Konfigurationen)
+### Level 2: Laufzeitprofile (13 Konfigurationen)
 
-Vergleicht 12 standardisierte Profile (P01-P12), die verschiedene **JVM-Implementierungen** und **Laufzeitmodelle** mit unterschiedlichen Docker-Images nutzen:
+Vergleicht 13 standardisierte Profile (P01-P13), die verschiedene **JVM-Implementierungen** und **Laufzeitmodelle** mit unterschiedlichen Docker-Images nutzen:
 
 - **HotSpot** (P01-P03, P09): Standard, Fast-Startup, Low-Latency, Heap-256m
 - **OpenJ9** (P04, P06-P08, P10): gencon, balanced, optthruput, optavgpause, Heap-256m
 - **GraalVM Native Image** (P05): AOT-kompiliert, kein JVM-Overhead
 - **HotSpot + CDS** (P11): Dynamic Class Data Sharing fuer schnelleren Startup
 - **GraalVM JIT** (P12): JVMCI-basierter JIT-Compiler
+- **Virtual Threads** (P13): HotSpot mit Project Loom (Tomcat auf virtuellen Threads)
 
 ### Standard-Durchlauf
 
-Per Default werden **beide Ebenen kombiniert** ausgefuehrt: 20 + 12 = **32 Konfigurationen**. Mit `--profiles` werden nur die 12 Profile ausgefuehrt.
+Per Default werden **beide Ebenen kombiniert** ausgefuehrt: 21 + 13 = **34 Konfigurationen**. Mit `--profiles` werden nur die 13 Profile ausgefuehrt.
 
 ---
 
-## Die 20 Flag-Analyse-Konfigurationen (Level 1)
+## Die 21 Flag-Analyse-Konfigurationen (Level 1)
 
 Alle verwenden das Image `tfl4-ek-bench:jvm` (Eclipse Temurin JRE 25).
 
@@ -133,13 +134,14 @@ Alle verwenden das Image `tfl4-ek-bench:jvm` (Eclipse Temurin JRE 25).
 | `shenandoah-heap-512m` | `-XX:+UseShenandoahGC -Xmx512m` | Shenandoah mit mehr Spielraum fuer concurrent GC. |
 | `tiered-stop-1-serial` | `-XX:TieredStopAtLevel=1 -XX:+UseSerialGC` | C1-only + Serial GC: schnellster Start + geringster GC-Overhead auf 1 CPU. |
 | `g1-coh-on` | `-XX:+UseG1GC -XX:+UnlockExperimentalVMOptions -XX:+UseCompactObjectHeaders` | G1 + Compact Object Headers: reduziert Objekt-Overhead und GC-Druck. |
+| `zgc-coh-on` | `-XX:+UseZGC -XX:+UnlockExperimentalVMOptions -XX:+UseCompactObjectHeaders` | ZGC + Compact Object Headers: niedrige Pausen + kompakte Objekte. |
 | `parallel-gc-256m` | `-XX:+UseParallelGC -Xmx256m` | Durchsatz-GC mit kleinem Heap. |
 | `g1-large-young` | `-XX:+UseG1GC -XX:NewRatio=1` | G1 mit 50% Young Gen. Weniger Full GCs erwartet bei alloc-lastigen Workloads. |
 | `zgc-tiered-stop-1` | `-XX:+UseZGC -XX:TieredStopAtLevel=1` | ZGC + C1-only: niedrige Pausen mit schnellem Start (Serverless/Cold-Start). |
 
 ---
 
-## Die 12 Laufzeitprofile (Level 2)
+## Die 13 Laufzeitprofile (Level 2)
 
 | Profil | Laufzeit | Docker-Image | JVM-Flags | Beschreibung |
 |--------|----------|-------------|-----------|-------------|
@@ -155,6 +157,7 @@ Alle verwenden das Image `tfl4-ek-bench:jvm` (Eclipse Temurin JRE 25).
 | `P10-openj9-heap-256m` | OPENJ9 | `openj9` | `-Xmx256m` | Speicher-limitiert |
 | `P11-hotspot-cds` | HOTSPOT | `jvm-cds` | `-XX:+UseG1GC -XX:MaxRAMPercentage=75` | Dynamic CDS, Startup-optimiert |
 | `P12-graalvm-jit` | HOTSPOT | `graalvm-jit` | `-XX:+UseG1GC -XX:MaxRAMPercentage=75` | GraalVM JVMCI JIT-Compiler |
+| `P13-virtual-threads` | HOTSPOT | `jvm-vt` | `-XX:+UseG1GC -XX:MaxRAMPercentage=75` | Virtual Threads (Project Loom), Tomcat auf VTs |
 
 JVM-Flags werden ueber `JAVA_TOOL_OPTIONS` an den Container uebergeben. GC-Logging wird automatisch injiziert: `-Xlog:gc*:stdout` (HotSpot) bzw. `-verbose:gc` (OpenJ9). Bei Native Images wird `JAVA_TOOL_OPTIONS` nicht gesetzt.
 
@@ -162,7 +165,7 @@ JVM-Flags werden ueber `JAVA_TOOL_OPTIONS` an den Container uebergeben. GC-Loggi
 
 ## Docker-Images
 
-Das Framework nutzt 10 Docker-Images (5 Standard + 5 EBICS-Varianten mit `-ek`-Suffix):
+Das Framework nutzt 12 Docker-Images (6 Standard + 6 EBICS-Varianten mit `-ek`-Suffix):
 
 | Tag | Dockerfile | Base Image | Beschreibung |
 |-----|-----------|------------|-------------|
@@ -176,6 +179,8 @@ Das Framework nutzt 10 Docker-Images (5 Standard + 5 EBICS-Varianten mit `-ek`-S
 | `tfl4-ek-bench:graalvm-jit-ek` | `Dockerfile.graalvm-jit.with-ek` | *(gleich)* | GraalVM JIT + EBICS-Kernel |
 | `tfl4-ek-bench:jvm-cds` | `Dockerfile.cds` | `eclipse-temurin:25-jre` | Dynamic CDS (2-Stage-Build: Training + Archive) |
 | `tfl4-ek-bench:jvm-cds-ek` | `Dockerfile.cds.with-ek` | *(gleich)* | CDS + EBICS-Kernel |
+| `tfl4-ek-bench:jvm-vt` | `Dockerfile.virtual-threads` | `eclipse-temurin:25-jre` | Virtual Threads (Project Loom) |
+| `tfl4-ek-bench:jvm-vt-ek` | `Dockerfile.virtual-threads.with-ek` | *(gleich)* | Virtual Threads + EBICS-Kernel |
 
 Docker-Images werden **automatisch** gebaut, wenn sie beim Benchmark-Start nicht lokal vorhanden sind (`DockerImageBuilder`). Mit `--rebuild` wird der Neuaufbau erzwungen.
 
@@ -199,6 +204,8 @@ TFL4/
 ├── Dockerfile.graalvm-jit.with-ek   # GraalVM JIT + EBICS-Kernel
 ├── Dockerfile.cds                   # Dynamic CDS (2-Stage Training)
 ├── Dockerfile.cds.with-ek           # CDS + EBICS-Kernel
+├── Dockerfile.virtual-threads       # Virtual Threads (Project Loom)
+├── Dockerfile.virtual-threads.with-ek # Virtual Threads + EBICS-Kernel
 │
 ├── src/main/java/de/mattis/
 │   ├── jvmoptimdemo/
@@ -208,7 +215,7 @@ TFL4/
 │   │
 │   └── resourcenoptimierung/bench/
 │       ├── BenchCli.java            # CLI-Einstiegspunkt
-│       ├── BenchmarkPlan.java       # 20 Default-Configs + 12 Profile + combinedPlan()
+│       ├── BenchmarkPlan.java       # 21 Default-Configs + 13 Profile + combinedPlan()
 │       ├── BenchmarkConfig.java     # Name + Docker-Image + JVM-Flags + RuntimeType
 │       ├── BenchmarkScenario.java   # Enum: JSON, ALLOC, EBICS_UPLOAD
 │       ├── BenchmarkRunner.java     # Iteriert ueber Plan, delegiert an SingleRun
@@ -219,7 +226,7 @@ TFL4/
 │       ├── ReadinessCheckUsed.java  # Enum: ACTUATOR_READINESS, ACTUATOR_HEALTH, WORKLOAD_UNTIL_200
 │       ├── RunResult.java           # Record mit allen Messwerten eines Runs
 │       ├── DockerStatSample.java    # Einzelner docker-stats-Snapshot
-│       ├── DockerImageBuilder.java  # Automatischer Image-Build (10 Images, Maven-Package)
+│       ├── DockerImageBuilder.java  # Automatischer Image-Build (12 Images, Maven-Package)
 │       ├── BenchStats.java          # Statistische Hilfsmethoden (CI, Stddev, t-Verteilung)
 │       ├── GcLogParser.java         # HotSpot GC-Log-Parsing (-Xlog:gc*:stdout)
 │       ├── OpenJ9GcLogParser.java   # OpenJ9 verbose:gc XML-Parsing
@@ -315,7 +322,7 @@ Auch akzeptiert: `payload`, `payload-heavy-json`, `/json`, `ok`, `upload`, `ebic
 | `--jvmArgs` | -- | JVM-Flags fuer einen einzelnen Run (ueberschreibt Plan) |
 | `--configName` | `cli-custom` | Name der Konfiguration (nur mit `--jvmArgs`) |
 | `--dockerImage` | `tfl4-ek-bench:jvm` | Docker-Image (nur mit `--jvmArgs`) |
-| `--profiles` | -- | Nur 12 Laufzeitprofile statt kombiniertem Plan (32 Configs) |
+| `--profiles` | -- | Nur 13 Laufzeitprofile statt kombiniertem Plan (34 Configs) |
 | `--rebuild` | -- | Erzwingt Neuaufbau von Maven-JAR und Docker-Images |
 | `--skipTravicLink` | -- | TravicLink nicht automatisch starten |
 | `--merge-excel` | -- | Alle CSVs aus bench-results/ zu benchmark-vergleich.xlsx zusammenfuehren (kein Benchmark) |
@@ -327,10 +334,10 @@ Beide Formen: `--scenario json` und `--scenario=json`. Explizite CLI-Werte ueber
 ### Beispiele
 
 ```powershell
-# Kombinierter Plan (20 + 12 = 32 Konfigurationen, 3 Wiederholungen):
+# Kombinierter Plan (21 + 13 = 34 Konfigurationen, 3 Wiederholungen):
 .\bench --scenario json --n 200000
 
-# Nur Laufzeitprofile (12 Profile):
+# Nur Laufzeitprofile (13 Profile):
 .\bench --scenario json --profiles
 
 # Schnelldurchlauf:
@@ -458,7 +465,7 @@ Pro Run werden gespeichert:
 | Klasse | Tests | Schwerpunkt |
 |--------|-------|-------------|
 | BenchCliTest | 49+ | Argument-Parsing, Szenario-Aufloesung, --quick, --smoke, --profiles, EBICS-Images |
-| BenchmarkPlanTest | 22 | defaultPlan (20 Configs), profilePlan (12 Profile), combinedPlan, withEbicsImages |
+| BenchmarkPlanTest | 22 | defaultPlan (21 Configs), profilePlan (13 Profile), combinedPlan, withEbicsImages |
 | MeasurementProfileTest | 11+ | defaults, quickDefaults, smokeDefaults, Validierung |
 | BenchmarkConfigTest | 8 | RuntimeType, Record-Felder |
 | DockerStatSampleTest | 8 | Parsing realer docker-stats-Ausgaben |
@@ -532,6 +539,6 @@ Bei EBICS-Szenarien (`--scenario ebics-upload`) startet die Benchmark-CLI den Tr
 | Tests | JUnit 5, Spring Boot WebMvc Test, 401 Unit + 4 E2E |
 | Container Limits | 1 CPU, 768 MB RAM, Swap deaktiviert |
 | Fat JAR | ~54 MB |
-| Benchmark-Konfigurationen | 20 Flag-Analyse + 12 Laufzeitprofile = 32 |
-| Docker-Images | 10 (5 Standard + 5 EBICS) |
+| Benchmark-Konfigurationen | 21 Flag-Analyse + 13 Laufzeitprofile = 34 |
+| Docker-Images | 12 (6 Standard + 6 EBICS) |
 | Statistik | 95%-CI (t-Verteilung), Bessel-korrigierte Stddev |

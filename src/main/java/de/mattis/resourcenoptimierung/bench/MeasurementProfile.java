@@ -39,6 +39,18 @@ public record MeasurementProfile(
     }
 
     /**
+     * EBICS-Messprofil: 50 Warmup, 200 Messung, sequentiell, kein Sleep.
+     * EBICS-Uploads dauern ~0.5s pro Request (netzwerkdominiert).
+     * 50 Warmup-Requests genuegen, da JIT bei netzwerkdominierten Workloads
+     * kaum Einfluss hat und der Hotpath bereits nach wenigen Requests kompiliert ist.
+     * 200 Mess-Requests liefern statistisch belastbare Latenzverteilungen
+     * bei deutlich reduzierter Gesamtlaufzeit (~44h -> ~3-5h).
+     */
+    public static MeasurementProfile ebicsDefaults() {
+        return new MeasurementProfile(50, 200, 1, 0);
+    }
+
+    /**
      * Schnell-Messprofil fuer --quick: 10 Warmup, 30 Messung, sequentiell, kein Sleep.
      * 10 Warmup-Requests genuegen fuer minimale JIT-Aufwaermung (kein C2-Steady-State).
      * 30 Mess-Requests liefern brauchbare p50/p95-Werte (p99 nur eingeschraenkt aussagekraeftig).

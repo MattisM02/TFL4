@@ -27,12 +27,13 @@ import java.util.List;
  * - --measureRequests:         Anzahl Mess-Requests (default: 500)
  * - --concurrency:             Parallele Requests (default: 1)
  * - --sleepBetweenRequestsMs:  Pause zwischen Requests in ms (default: 0)
- * - --repetitions:             Anzahl Wiederholungen pro Konfiguration (default: 3)
+ * - --repetitions:             Anzahl Wiederholungen pro Konfiguration (default: 3, EBICS: 2)
  * - --jvmArgs:                 JVM-Flags fuer einen einzelnen Run (z.B. "--jvmArgs \"-XX:+UseZGC -Xmx1g\"")
  * - --configName:              Name fuer die CLI-Konfiguration (default: "cli-custom")
  * - --dockerImage:             Docker-Image fuer den CLI-Run (default: "tfl4-ek-bench:jvm")
  * - --skipTravicLink:          TravicLink docker-compose NICHT starten (externer Server erwartet)
-     * - --profiles:                Nur Laufzeitprofile statt vollstaendigem Plan (11 Profile P01-P04+P06-P12 statt 31 Configs)
+     * - --profiles:                Nur Laufzeitprofile statt vollstaendigem Plan (13 Profile P01-P13 statt 32 Configs)
+     * - --flags:                   Nur Flag-Analyse-Konfigurationen (19 Configs, Ebene 1) statt vollstaendigem Plan
  * - --rebuild:                 Erzwingt Neuaufbau von Maven-JAR und Docker-Images (auch wenn vorhanden)
  * - --merge-excel:             Alle CSVs aus bench-results/ in ein Excel zusammenfuehren (kein Benchmark)
  * - --estimate:                Geschaetzte Laufzeit basierend auf historischen Daten ausgeben (kein Benchmark).
@@ -58,6 +59,9 @@ public class BenchCli {
     /** Standard-Anzahl Wiederholungen pro Konfiguration, wenn weder --smoke noch --quick gesetzt. */
     private static final int DEFAULT_REPETITIONS = 3;
 
+    /** Standard-Anzahl Wiederholungen fuer EBICS-Szenarien (netzwerkdominiert, geringe Varianz). */
+    private static final int DEFAULT_REPETITIONS_EBICS = 2;
+
     /**
      * Startet den Benchmark-Durchlauf.
      *
@@ -79,9 +83,9 @@ public class BenchCli {
         // Standalone: --estimate gibt die geschaetzte Laufzeit aus (kein Benchmark)
         if (hasFlag(args, "--estimate")) {
             BenchmarkScenario estScenario = resolveScenario(args);
-            MeasurementProfile estProfile = resolveProfile(args);
+            MeasurementProfile estProfile = resolveProfile(args, estScenario);
             BenchmarkPlan estPlan = resolvePlan(args, estScenario);
-            int estDefaultReps = (hasFlag(args, "--smoke") || hasFlag(args, "--quick")) ? 1 : DEFAULT_REPETITIONS;
+            int estDefaultReps = resolveDefaultRepetitions(args, estScenario);
             int estRepetitions = resolveIntArg(args, "--repetitions", estDefaultReps);
             DurationEstimator.printEstimate(estPlan, estScenario, estProfile, estRepetitions);
             return;
@@ -89,9 +93,9 @@ public class BenchCli {
 
         BenchmarkScenario scenario = resolveScenario(args);
         int workloadN = resolveWorkloadN(args, scenario);
-        MeasurementProfile profile = resolveProfile(args);
+        MeasurementProfile profile = resolveProfile(args, scenario);
         BenchmarkPlan plan = resolvePlan(args, scenario);
-        int defaultReps = (hasFlag(args, "--smoke") || hasFlag(args, "--quick")) ? 1 : DEFAULT_REPETITIONS;
+        int defaultReps = resolveDefaultRepetitions(args, scenario);
         int repetitions = resolveIntArg(args, "--repetitions", defaultReps);
 
         boolean rebuild = hasFlag(args, "--rebuild");
@@ -162,17 +166,21 @@ public class BenchCli {
      * Baut das Messprofil aus CLI-Argumenten oder Defaults.
      * Bei --smoke werden minimale Defaults verwendet (3/5 statt 200/500) — reiner Pipeline-Test.
      * Bei --quick werden reduzierte Defaults verwendet (10/30 statt 200/500).
+     * Fuer EBICS-Szenarien (ohne --smoke/--quick) werden die EBICS-Defaults verwendet (50/200 statt 200/500),
+     * da EBICS-Uploads netzwerkdominiert sind (~0.5s/Request) und mehr Requests wenig Mehrwert bringen.
      * --smoke hat Vorrang vor --quick, falls beide angegeben sind.
      * Explizite CLI-Werte ueberschreiben die jeweiligen Defaults.
      *
      * @param args CLI-Argumente
+     * @param scenario Szenario (fuer EBICS-spezifische Defaults)
      * @return konfiguriertes MeasurementProfile
      */
-    static MeasurementProfile resolveProfile(String[] args) {
+    static MeasurementProfile resolveProfile(String[] args, BenchmarkScenario scenario) {
         boolean smoke = hasFlag(args, "--smoke");
         boolean quick = hasFlag(args, "--quick");
         MeasurementProfile base = smoke ? MeasurementProfile.smokeDefaults()
                 : quick ? MeasurementProfile.quickDefaults()
+                : scenario.isEbics() ? MeasurementProfile.ebicsDefaults()
                 : MeasurementProfile.defaults();
 
         int warmup = resolveIntArg(args, "--warmupRequests", base.warmupRequests());
@@ -186,8 +194,9 @@ public class BenchCli {
     /**
      * Bestimmt den Benchmark-Plan.
      * Wenn --jvmArgs gesetzt ist, wird ein Plan mit einer einzelnen Konfiguration erzeugt.
-     * Sonst wird der vollstaendige Plan (31 Konfigurationen) verwendet.
-     * Mit --profiles werden nur die Laufzeitprofile (11 Profile P01-P04+P06-P12) verwendet.
+     * Sonst wird der vollstaendige Plan (32 Konfigurationen) verwendet.
+     * Mit --profiles werden nur die Laufzeitprofile (13 Profile P01-P13) verwendet.
+     * Mit --flags werden nur die Flag-Analyse-Konfigurationen (19 Configs, Ebene 1) verwendet.
      *
      * Fuer EBICS-Szenarien werden die Docker-Images automatisch auf die EK-Varianten
      * umgestellt (Suffix-Konvention: Tag + "-ek"), sofern nicht per --dockerImage
@@ -203,9 +212,11 @@ public class BenchCli {
 
         String jvmArgsRaw = findArgValue(args, "--jvmArgs");
         if (jvmArgsRaw == null) {
-            // Entscheidung: nur Profile (--profiles) oder vollstaendiger Plan (default)
+            // Entscheidung: nur Profile (--profiles), nur Flags (--flags) oder vollstaendiger Plan (default)
             BenchmarkPlan plan = hasFlag(args, "--profiles")
                     ? BenchmarkPlan.profilePlan()
+                    : hasFlag(args, "--flags")
+                    ? BenchmarkPlan.flagPlan()
                     : BenchmarkPlan.defaultPlan();
             if (ebics) {
                 plan = plan.withEbicsImages();
@@ -270,7 +281,7 @@ public class BenchCli {
         System.out.println("Choose workload scenario:");
         System.out.println("  1) /json         (payload-heavy, default n=200000)");
         System.out.println("  2) /alloc        (alloc-heavy,  default n=10000000)");
-        System.out.println("  3) /ebics/upload (EBICS upload, default n=10)");
+        System.out.println("  3) /ebics/upload (EBICS upload, default n=3)");
         System.out.print("Enter 1-3 (default: 1): ");
 
         String line = br.readLine();
@@ -291,7 +302,7 @@ public class BenchCli {
     /**
      * Bestimmt den Workload-Parameter n.
      * Wenn --n gesetzt ist, wird der Wert verwendet, sonst ein Default pro Szenario.
-     * Bei --smoke werden die Defaults reduziert (EBICS: 3 statt 10).
+     * Bei --smoke werden die Defaults reduziert (EBICS: 3).
      *
      * @param args CLI-Argumente
      * @param scenario Szenario fuer die Default-Wahl
@@ -309,6 +320,23 @@ public class BenchCli {
 
         boolean smoke = hasFlag(args, "--smoke");
         return smoke ? scenario.smokeN() : scenario.defaultN();
+    }
+
+    /**
+     * Bestimmt die Standard-Wiederholungen pro Konfiguration.
+     * Bei --smoke oder --quick: immer 1.
+     * Fuer EBICS-Szenarien: {@value #DEFAULT_REPETITIONS_EBICS} (netzwerkdominiert, geringe Varianz).
+     * Sonst: {@value #DEFAULT_REPETITIONS}.
+     *
+     * @param args CLI-Argumente
+     * @param scenario Szenario
+     * @return Standard-Wiederholungen
+     */
+    static int resolveDefaultRepetitions(String[] args, BenchmarkScenario scenario) {
+        if (hasFlag(args, "--smoke") || hasFlag(args, "--quick")) {
+            return 1;
+        }
+        return scenario.isEbics() ? DEFAULT_REPETITIONS_EBICS : DEFAULT_REPETITIONS;
     }
 
     /**

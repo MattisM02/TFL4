@@ -22,8 +22,8 @@ class BenchmarkPlanTest {
     @Test
     void defaultPlan_containsTwentyConfigs() {
         BenchmarkPlan plan = BenchmarkPlan.defaultPlan();
-        assertEquals(34, plan.configs.size(),
-                "Default plan should contain 34 configs (21 flag-analysis + 13 profiles)");
+        assertEquals(32, plan.configs.size(),
+                "Default plan should contain 32 configs (19 flag-analysis + 13 profiles)");
     }
 
     @Test
@@ -80,12 +80,6 @@ class BenchmarkPlanTest {
     }
 
     @Test
-    void defaultPlan_containsG1Heap256m() {
-        BenchmarkConfig cfg = findConfig(BenchmarkPlan.defaultPlan(), "g1-heap-256m");
-        assertTrue(cfg.jvmArgs().contains("-Xmx256m"));
-    }
-
-    @Test
     void defaultPlan_containsG1Heap512m() {
         BenchmarkConfig cfg = findConfig(BenchmarkPlan.defaultPlan(), "g1-heap-512m");
         assertTrue(cfg.jvmArgs().contains("-Xmx512m"));
@@ -96,12 +90,6 @@ class BenchmarkPlanTest {
         BenchmarkConfig cfg = findConfig(BenchmarkPlan.defaultPlan(), "coh-on");
         assertTrue(cfg.jvmArgs().contains("-XX:+UnlockExperimentalVMOptions"));
         assertTrue(cfg.jvmArgs().contains("-XX:+UseCompactObjectHeaders"));
-    }
-
-    @Test
-    void defaultPlan_containsRamPercentage75() {
-        BenchmarkConfig cfg = findConfig(BenchmarkPlan.defaultPlan(), "ram-percentage-75");
-        assertTrue(cfg.jvmArgs().contains("-XX:MaxRAMPercentage=75"));
     }
 
     @Test
@@ -180,7 +168,7 @@ class BenchmarkPlanTest {
     @Test
     void defaultPlan_flagAnalysisUseSameImage() {
         BenchmarkPlan plan = BenchmarkPlan.defaultPlan();
-        long distinctImages = plan.configs.subList(0, 21).stream()
+        long distinctImages = plan.configs.subList(0, 19).stream()
                 .map(BenchmarkConfig::dockerImage)
                 .distinct()
                 .count();
@@ -258,7 +246,7 @@ class BenchmarkPlanTest {
     @Test
     void defaultPlan_flagAnalysisAllHotspot() {
         BenchmarkPlan plan = BenchmarkPlan.defaultPlan();
-        for (BenchmarkConfig cfg : plan.configs.subList(0, 21)) {
+        for (BenchmarkConfig cfg : plan.configs.subList(0, 19)) {
             assertEquals(RuntimeType.HOTSPOT, cfg.runtimeType(),
                     "Config '" + cfg.name() + "' should be HOTSPOT in flag-analysis portion");
         }
@@ -333,6 +321,8 @@ class BenchmarkPlanTest {
         BenchmarkConfig p03 = findConfig(plan, "P03-hotspot-low-latency");
         assertEquals(RuntimeType.HOTSPOT, p03.runtimeType());
         assertTrue(p03.jvmArgs().contains("-XX:+UseZGC"));
+        assertTrue(p03.jvmArgs().contains("-XX:MaxRAMPercentage=50"),
+                "P03 (ZGC) should use MaxRAMPercentage=50 to avoid OOM in 768MB containers");
     }
 
     @Test
@@ -547,8 +537,8 @@ class BenchmarkPlanTest {
     @Test
     void combinedPlan_contains32Configs() {
         BenchmarkPlan plan = BenchmarkPlan.combinedPlan();
-        assertEquals(34, plan.configs.size(),
-                "Combined plan should contain 34 configs (unified plan)");
+        assertEquals(32, plan.configs.size(),
+                "Combined plan should contain 32 configs (unified plan)");
     }
 
     @Test
@@ -561,15 +551,15 @@ class BenchmarkPlanTest {
     @Test
     void combinedPlan_profilesAfterDefaults() {
         BenchmarkPlan plan = BenchmarkPlan.combinedPlan();
-        // Config at index 21 should be P01 (first profile, after 21 flag-analysis configs)
-        assertEquals("P01-hotspot-standard", plan.configs.get(21).name(),
-                "Profiles should start at index 21 (after 21 default configs)");
+        // Config at index 19 should be P01 (first profile, after 19 flag-analysis configs)
+        assertEquals("P01-hotspot-standard", plan.configs.get(19).name(),
+                "Profiles should start at index 19 (after 19 default configs)");
     }
 
     @Test
     void combinedPlan_endsWithP13() {
         BenchmarkPlan plan = BenchmarkPlan.combinedPlan();
-        assertEquals("P13-virtual-threads", plan.configs.get(33).name(),
+        assertEquals("P13-virtual-threads", plan.configs.get(31).name(),
                 "Combined plan should end with P13");
     }
 

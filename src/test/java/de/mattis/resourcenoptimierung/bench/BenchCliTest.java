@@ -171,7 +171,7 @@ class BenchCliTest {
 
     @Test
     void resolveWorkloadN_defaultEbicsUpload() {
-        assertEquals(10, BenchCli.resolveWorkloadN(new String[]{}, BenchmarkScenario.EBICS_UPLOAD));
+        assertEquals(3, BenchCli.resolveWorkloadN(new String[]{}, BenchmarkScenario.EBICS_UPLOAD));
     }
 
     @Test
@@ -187,7 +187,7 @@ class BenchCliTest {
 
     @Test
     void resolveProfile_defaults() {
-        MeasurementProfile p = BenchCli.resolveProfile(new String[]{});
+        MeasurementProfile p = BenchCli.resolveProfile(new String[]{}, BenchmarkScenario.PAYLOAD_HEAVY_JSON);
         assertEquals(MeasurementProfile.defaults(), p);
     }
 
@@ -199,7 +199,7 @@ class BenchCliTest {
                 "--concurrency", "4",
                 "--sleepBetweenRequestsMs", "100"
         };
-        MeasurementProfile p = BenchCli.resolveProfile(args);
+        MeasurementProfile p = BenchCli.resolveProfile(args, BenchmarkScenario.PAYLOAD_HEAVY_JSON);
         assertEquals(5, p.warmupRequests());
         assertEquals(50, p.measureRequests());
         assertEquals(4, p.concurrency());
@@ -209,7 +209,7 @@ class BenchCliTest {
     @Test
     void resolveProfile_partialOverride() {
         String[] args = {"--concurrency", "8"};
-        MeasurementProfile p = BenchCli.resolveProfile(args);
+        MeasurementProfile p = BenchCli.resolveProfile(args, BenchmarkScenario.PAYLOAD_HEAVY_JSON);
         assertEquals(200, p.warmupRequests());  // default
         assertEquals(500, p.measureRequests()); // default
         assertEquals(8, p.concurrency());       // overridden
@@ -257,10 +257,10 @@ class BenchCliTest {
     void resolvePlan_noJvmArgs_returnsCombinedPlan() {
         String[] args = {"--scenario", "json"};
         BenchmarkPlan plan = BenchCli.resolvePlan(args, BenchmarkScenario.PAYLOAD_HEAVY_JSON);
-        assertEquals(34, plan.configs.size(),
-                "Without --profiles, combined plan should have 34 configs");
+        assertEquals(32, plan.configs.size(),
+                "Without --profiles, combined plan should have 32 configs");
         assertEquals("baseline", plan.configs.get(0).name());
-        assertEquals("P01-hotspot-standard", plan.configs.get(21).name());
+        assertEquals("P01-hotspot-standard", plan.configs.get(19).name());
     }
 
     @Test
@@ -316,7 +316,7 @@ class BenchCliTest {
     void resolvePlan_ebicsUpload_defaultPlan_usesEkImages() {
         String[] args = {};
         BenchmarkPlan plan = BenchCli.resolvePlan(args, BenchmarkScenario.EBICS_UPLOAD);
-        assertEquals(34, plan.configs.size(), "EBICS combined plan should have 34 configs");
+        assertEquals(32, plan.configs.size(), "EBICS combined plan should have 32 configs");
         // Alle Configs muessen auf EK-Images enden
         for (BenchmarkConfig cfg : plan.configs) {
             assertTrue(cfg.dockerImage().endsWith("-ek"),
@@ -344,7 +344,7 @@ class BenchCliTest {
     void resolvePlan_nonEbics_combinedPlan_defaultImagesNotEk() {
         String[] args = {};
         BenchmarkPlan plan = BenchCli.resolvePlan(args, BenchmarkScenario.ALLOC_HEAVY_OK);
-        assertEquals(34, plan.configs.size());
+        assertEquals(32, plan.configs.size());
         // No image should end with -ek in non-EBICS mode
         for (BenchmarkConfig cfg : plan.configs) {
             assertFalse(cfg.dockerImage().endsWith("-ek"),
@@ -465,7 +465,7 @@ class BenchCliTest {
     @Test
     void resolveProfile_quick_usesQuickDefaults() {
         String[] args = {"--quick"};
-        MeasurementProfile p = BenchCli.resolveProfile(args);
+        MeasurementProfile p = BenchCli.resolveProfile(args, BenchmarkScenario.PAYLOAD_HEAVY_JSON);
         assertEquals(10, p.warmupRequests());
         assertEquals(30, p.measureRequests());
         assertEquals(1, p.concurrency());
@@ -475,7 +475,7 @@ class BenchCliTest {
     @Test
     void resolveProfile_quick_withOverride() {
         String[] args = {"--quick", "--measureRequests", "50"};
-        MeasurementProfile p = BenchCli.resolveProfile(args);
+        MeasurementProfile p = BenchCli.resolveProfile(args, BenchmarkScenario.PAYLOAD_HEAVY_JSON);
         assertEquals(10, p.warmupRequests());   // quick default
         assertEquals(50, p.measureRequests());   // overridden
         assertEquals(1, p.concurrency());        // quick default
@@ -485,7 +485,7 @@ class BenchCliTest {
     @Test
     void resolveProfile_quick_partialOverride() {
         String[] args = {"--quick", "--concurrency", "4"};
-        MeasurementProfile p = BenchCli.resolveProfile(args);
+        MeasurementProfile p = BenchCli.resolveProfile(args, BenchmarkScenario.PAYLOAD_HEAVY_JSON);
         assertEquals(10, p.warmupRequests());    // quick default
         assertEquals(30, p.measureRequests());   // quick default
         assertEquals(4, p.concurrency());        // overridden
@@ -496,7 +496,7 @@ class BenchCliTest {
     void repetitions_quick_defaultIs1() {
         // Simulates what main() does: quick flag -> default repetitions = 1
         String[] args = {"--quick"};
-        int defaultReps = BenchCli.hasFlag(args, "--quick") ? 1 : 3;
+        int defaultReps = BenchCli.resolveDefaultRepetitions(args, BenchmarkScenario.PAYLOAD_HEAVY_JSON);
         int reps = BenchCli.resolveIntArg(args, "--repetitions", defaultReps);
         assertEquals(1, reps);
     }
@@ -505,7 +505,7 @@ class BenchCliTest {
     void repetitions_quick_explicitOverride() {
         // --quick setzt default auf 1, aber --repetitions 5 ueberschreibt
         String[] args = {"--quick", "--repetitions", "5"};
-        int defaultReps = BenchCli.hasFlag(args, "--quick") ? 1 : 3;
+        int defaultReps = BenchCli.resolveDefaultRepetitions(args, BenchmarkScenario.PAYLOAD_HEAVY_JSON);
         int reps = BenchCli.resolveIntArg(args, "--repetitions", defaultReps);
         assertEquals(5, reps);
     }
@@ -543,7 +543,7 @@ class BenchCliTest {
     @Test
     void resolveProfile_smoke_usesSmokeDefaults() {
         String[] args = {"--smoke"};
-        MeasurementProfile p = BenchCli.resolveProfile(args);
+        MeasurementProfile p = BenchCli.resolveProfile(args, BenchmarkScenario.PAYLOAD_HEAVY_JSON);
         assertEquals(3, p.warmupRequests());
         assertEquals(5, p.measureRequests());
         assertEquals(1, p.concurrency());
@@ -553,7 +553,7 @@ class BenchCliTest {
     @Test
     void resolveProfile_smoke_withOverride() {
         String[] args = {"--smoke", "--measureRequests", "10"};
-        MeasurementProfile p = BenchCli.resolveProfile(args);
+        MeasurementProfile p = BenchCli.resolveProfile(args, BenchmarkScenario.PAYLOAD_HEAVY_JSON);
         assertEquals(3, p.warmupRequests());    // smoke default
         assertEquals(10, p.measureRequests());  // overridden
         assertEquals(1, p.concurrency());       // smoke default
@@ -564,7 +564,7 @@ class BenchCliTest {
     void resolveProfile_smoke_overridesQuick() {
         // --smoke has precedence over --quick
         String[] args = {"--smoke", "--quick"};
-        MeasurementProfile p = BenchCli.resolveProfile(args);
+        MeasurementProfile p = BenchCli.resolveProfile(args, BenchmarkScenario.PAYLOAD_HEAVY_JSON);
         assertEquals(3, p.warmupRequests());    // smoke, not quick (10)
         assertEquals(5, p.measureRequests());   // smoke, not quick (30)
     }
@@ -597,7 +597,7 @@ class BenchCliTest {
     void repetitions_smoke_defaultIs1() {
         // Simulates what main() does: smoke flag -> default repetitions = 1
         String[] args = {"--smoke"};
-        int defaultReps = (BenchCli.hasFlag(args, "--smoke") || BenchCli.hasFlag(args, "--quick")) ? 1 : 3;
+        int defaultReps = BenchCli.resolveDefaultRepetitions(args, BenchmarkScenario.PAYLOAD_HEAVY_JSON);
         int reps = BenchCli.resolveIntArg(args, "--repetitions", defaultReps);
         assertEquals(1, reps);
     }
@@ -606,7 +606,7 @@ class BenchCliTest {
     void repetitions_smoke_explicitOverride() {
         // --smoke setzt default auf 1, aber --repetitions 3 ueberschreibt
         String[] args = {"--smoke", "--repetitions", "3"};
-        int defaultReps = (BenchCli.hasFlag(args, "--smoke") || BenchCli.hasFlag(args, "--quick")) ? 1 : 3;
+        int defaultReps = BenchCli.resolveDefaultRepetitions(args, BenchmarkScenario.PAYLOAD_HEAVY_JSON);
         int reps = BenchCli.resolveIntArg(args, "--repetitions", defaultReps);
         assertEquals(3, reps);
     }
@@ -621,5 +621,84 @@ class BenchCliTest {
     void hasFlag_smoke_notPresent() {
         String[] args = {"--scenario", "json"};
         assertFalse(BenchCli.hasFlag(args, "--smoke"));
+    }
+
+    // ==================== resolveProfile — EBICS ====================
+
+    @Test
+    void resolveProfile_ebics_usesEbicsDefaults() {
+        String[] args = {};
+        MeasurementProfile p = BenchCli.resolveProfile(args, BenchmarkScenario.EBICS_UPLOAD);
+        assertEquals(MeasurementProfile.ebicsDefaults(), p);
+        assertEquals(50, p.warmupRequests());
+        assertEquals(200, p.measureRequests());
+    }
+
+    @Test
+    void resolveProfile_ebics_smoke_usesSmokeNotEbics() {
+        // --smoke hat Vorrang vor EBICS-Defaults
+        String[] args = {"--smoke"};
+        MeasurementProfile p = BenchCli.resolveProfile(args, BenchmarkScenario.EBICS_UPLOAD);
+        assertEquals(MeasurementProfile.smokeDefaults(), p);
+    }
+
+    @Test
+    void resolveProfile_ebics_quick_usesQuickNotEbics() {
+        // --quick hat Vorrang vor EBICS-Defaults
+        String[] args = {"--quick"};
+        MeasurementProfile p = BenchCli.resolveProfile(args, BenchmarkScenario.EBICS_UPLOAD);
+        assertEquals(MeasurementProfile.quickDefaults(), p);
+    }
+
+    @Test
+    void resolveProfile_ebics_withOverride() {
+        // Explicit CLI values override EBICS defaults
+        String[] args = {"--warmupRequests", "100", "--measureRequests", "300"};
+        MeasurementProfile p = BenchCli.resolveProfile(args, BenchmarkScenario.EBICS_UPLOAD);
+        assertEquals(100, p.warmupRequests());
+        assertEquals(300, p.measureRequests());
+    }
+
+    @Test
+    void resolveProfile_nonEbics_usesStandardDefaults() {
+        // Non-EBICS scenarios still use standard defaults
+        String[] args = {};
+        MeasurementProfile p = BenchCli.resolveProfile(args, BenchmarkScenario.ALLOC_HEAVY_OK);
+        assertEquals(MeasurementProfile.defaults(), p);
+    }
+
+    // ==================== resolveDefaultRepetitions ====================
+
+    @Test
+    void resolveDefaultRepetitions_nonEbics_is3() {
+        assertEquals(3, BenchCli.resolveDefaultRepetitions(new String[]{}, BenchmarkScenario.PAYLOAD_HEAVY_JSON));
+        assertEquals(3, BenchCli.resolveDefaultRepetitions(new String[]{}, BenchmarkScenario.ALLOC_HEAVY_OK));
+    }
+
+    @Test
+    void resolveDefaultRepetitions_ebics_is2() {
+        assertEquals(2, BenchCli.resolveDefaultRepetitions(new String[]{}, BenchmarkScenario.EBICS_UPLOAD));
+    }
+
+    @Test
+    void resolveDefaultRepetitions_smoke_alwaysIs1() {
+        String[] args = {"--smoke"};
+        assertEquals(1, BenchCli.resolveDefaultRepetitions(args, BenchmarkScenario.PAYLOAD_HEAVY_JSON));
+        assertEquals(1, BenchCli.resolveDefaultRepetitions(args, BenchmarkScenario.EBICS_UPLOAD));
+    }
+
+    @Test
+    void resolveDefaultRepetitions_quick_alwaysIs1() {
+        String[] args = {"--quick"};
+        assertEquals(1, BenchCli.resolveDefaultRepetitions(args, BenchmarkScenario.PAYLOAD_HEAVY_JSON));
+        assertEquals(1, BenchCli.resolveDefaultRepetitions(args, BenchmarkScenario.EBICS_UPLOAD));
+    }
+
+    @Test
+    void resolveDefaultRepetitions_explicitOverride() {
+        // resolveDefaultRepetitions returns the *default* — explicit --repetitions is handled by resolveIntArg
+        String[] args = {"--repetitions", "5"};
+        // The default is still 2 for EBICS (the override happens in main via resolveIntArg)
+        assertEquals(2, BenchCli.resolveDefaultRepetitions(args, BenchmarkScenario.EBICS_UPLOAD));
     }
 }

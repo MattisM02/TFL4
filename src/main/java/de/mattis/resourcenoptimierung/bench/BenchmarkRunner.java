@@ -146,8 +146,9 @@ public class BenchmarkRunner {
                     failures++;
                     System.err.println();
                     System.err.println("[ERROR] Config '" + cfg.name() + "' rep " + rep
-                            + " failed: " + e.getMessage());
+                            + " failed: " + formatException(e));
                     System.err.println("[ERROR] Skipping this config, continuing with next.");
+                    e.printStackTrace(System.err);
                     System.err.println();
                 }
             }
@@ -168,5 +169,30 @@ public class BenchmarkRunner {
      */
     public int repetitions() {
         return repetitions;
+    }
+
+    /**
+     * Formatiert eine Exception mit Klassenname und Cause-Chain fuer lesbare Log-Ausgabe.
+     * Vermeidet das Problem, dass {@code e.getMessage()} bei vielen IOExceptions {@code null} liefert.
+     *
+     * @param e Exception
+     * @return z.B. "java.io.IOException: HTTP/1.1 header parser received no bytes"
+     *         oder "java.io.IOException (caused by java.net.ConnectException: Connection refused)"
+     */
+    static String formatException(Exception e) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(e.getClass().getName());
+        if (e.getMessage() != null) {
+            sb.append(": ").append(e.getMessage());
+        }
+        Throwable cause = e.getCause();
+        if (cause != null) {
+            sb.append(" (caused by ").append(cause.getClass().getName());
+            if (cause.getMessage() != null) {
+                sb.append(": ").append(cause.getMessage());
+            }
+            sb.append(")");
+        }
+        return sb.toString();
     }
 }
